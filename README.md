@@ -12,7 +12,7 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 - Rutas NFC desde el selector de casas para abrir una casa directamente.
 - Imágenes opcionales por producto, visibles para todos los miembros mientras la compra está pendiente.
 - Catálogo global de productos ya usados: al escribir en cualquier casa aparecen sugerencias para autocompletar nombre y categoría.
-- Categorías independientes por casa, creadas manualmente y editables o borrables desde la propia lista.
+- Categorías globales compartidas entre todas las casas, con selección independiente de las categorías activas en cada vivienda.
 - Fotos opcionales únicamente desde la cámara o la galería del móvil, con recorte y compresión.
 - Persistencia local de la autorización con AsyncStorage.
 - Selector de casas como pantalla inicial: la autorización se solicita al entrar en el menú y después permite gestionar las casas sin repetirla.
@@ -31,7 +31,7 @@ Al entrar en el menú de casas se solicita la autorización configurada en `EXPO
 5. Ejecuta el contenido completo de `supabase/database.sql` en el SQL Editor de Supabase.
 6. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
-El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes, el catálogo global de productos y las categorías independientes de cada casa. Las categorías se crean manualmente desde la lista; al renombrarlas también se actualizan los productos existentes y, al borrarlas, esos productos pasan a “Sin categoría”. El catálogo conserva nombre, categoría y número de compras para sugerir productos entre casas; las fotos son opcionales, se muestran mientras la compra está pendiente y se eliminan al marcarla como completada. Las imágenes solo se incorporan desde la cámara o la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage. No uses nunca una service-role key dentro de la aplicación móvil.
+El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes, el catálogo global de productos y las categorías globales compartidas. Las categorías se crean manualmente y cualquier casa puede activar o desactivar las que quiere usar; también se puede desactivar completamente el modo de categorías para mostrar una lista convencional. Al renombrar una categoría se actualizan los productos existentes y, al borrarla, esos productos pasan a “Sin categoría”. El catálogo conserva nombre, categoría y número de compras para sugerir productos entre casas; las fotos son opcionales, se muestran mientras la compra está pendiente y se eliminan al marcarla como completada. Las imágenes solo se incorporan desde la cámara o la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage. No uses nunca una service-role key dentro de la aplicación móvil.
 
 ### Error 404 al crear un hogar (PGRST202)
 

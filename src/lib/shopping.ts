@@ -51,38 +51,64 @@ export function normalizeProductName(value: string): string {
 }
 
 export async function getHouseholdCategories(householdId: string): Promise<HouseholdCategory[]> {
-  const { data, error } = await supabase
-    .from('household_categories')
-    .select('*')
-    .eq('household_id', householdId)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as HouseholdCategory[];
+  const [{ data: categories, error: categoriesError }, { data: settings, error: settingsError }] = await Promise.all([
+    supabase.from('product_categories').select('*').order('created_at', { ascending: true }),
+    supabase.from('household_category_settings').select('category_id, enabled').eq('household_id', householdId),
+  ]);
+  if (categoriesError) throw categoriesError;
+  if (settingsError) throw settingsError;
+  const enabledByCategory = new Map((settings ?? []).map((setting) => [setting.category_id as string, setting.enabled as boolean]));
+  return (categories ?? []).map((category) => ({
+    ...category,
+    enabled: enabledByCategory.get(category.id) ?? true,
+  })) as HouseholdCategory[];
 }
 
-export async function createHouseholdCategory(householdId: string, name: string, emoji: string): Promise<HouseholdCategory> {
+export async function createHouseholdCategory(name: string, emoji: string): Promise<HouseholdCategory> {
   const { data, error } = await supabase
-    .from('household_categories')
-    .insert({ household_id: householdId, name: name.trim(), emoji: emoji.trim() || '🏷️' })
+    .from('product_categories')
+    .insert({ name: name.trim(), emoji: emoji.trim() || '🏷️' })
     .select()
     .single();
   if (error) throw error;
-  return data as HouseholdCategory;
+  return { ...(data as HouseholdCategory), enabled: true };
 }
 
 export async function updateHouseholdCategory(id: string, name: string, emoji: string): Promise<HouseholdCategory> {
-  const { data, error } = await supabase.rpc('rename_household_category', {
+  const { data, error } = await supabase.rpc('rename_product_category', {
     target_category_id: id,
     category_name: name.trim(),
     category_emoji: emoji.trim() || '🏷️',
   });
   if (error) throw error;
-  return data as HouseholdCategory;
+  return { ...(data as HouseholdCategory), enabled: true };
 }
 
 export async function deleteHouseholdCategory(id: string): Promise<void> {
-  const { error } = await supabase.rpc('delete_household_category', {
+  const { error } = await supabase.rpc('delete_product_category', {
     target_category_id: id,
+  });
+  if (error) throw error;
+}
+
+export async function setHouseholdCategoryEnabled(householdId: string, categoryId: string, enabled: boolean): Promise<void> {
+  if (enabled) {
+    const { error } = await supabase
+      .from('household_category_settings')
+      .upsert({ household_id: householdId, category_id: categoryId, enabled: true });
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase
+    .from('household_category_settings')
+    .upsert({ household_id: householdId, category_id: categoryId, enabled: false });
+  if (error) throw error;
+}
+
+export async function setHouseholdCategoryMode(householdId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_household_category_mode', {
+    target_household_id: householdId,
+    enabled,
   });
   if (error) throw error;
 }

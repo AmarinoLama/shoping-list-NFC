@@ -11,6 +11,7 @@ export type Household = {
   nfc_token: string;
   created_by: string | null;
   created_at: string;
+  category_mode_enabled?: boolean;
 };
 
 export type HouseholdProduct = {
@@ -38,10 +39,10 @@ export type ProductCatalogEntry = {
 
 export type HouseholdCategory = {
   id: string;
-  household_id: string;
   name: string;
   emoji: string;
   created_at: string;
+  enabled: boolean;
 };
 
 export type ShoppingItem = {

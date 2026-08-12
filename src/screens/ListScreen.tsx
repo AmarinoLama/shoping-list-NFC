@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   useWindowDimensions,
@@ -28,6 +29,8 @@ import {
   getShoppingItems,
   rememberProductCatalog,
   searchProductCatalog,
+  setHouseholdCategoryEnabled,
+  setHouseholdCategoryMode,
   setItemCompleted,
   subscribeToShoppingItems,
   updateHouseholdCategory,
@@ -79,6 +82,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [householdCategories, setHouseholdCategories] = useState<HouseholdCategory[]>([]);
+  const [categoryModeEnabled, setCategoryModeEnabled] = useState(household.category_mode_enabled !== false);
   const [categoryManagerVisible, setCategoryManagerVisible] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<HouseholdCategory | null>(null);
@@ -104,9 +108,12 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       ]);
       setItems(loadedItems);
       setHouseholdCategories(loadedCategories);
-      setCategory((current) => loadedCategories.some((option) => option.name === current)
+      const modeEnabled = household.category_mode_enabled !== false;
+      setCategoryModeEnabled(modeEnabled);
+      const firstEnabledCategory = loadedCategories.find((option) => option.enabled)?.name ?? '';
+      setCategory((current) => modeEnabled && loadedCategories.some((option) => option.enabled && option.name === current)
         ? current
-        : loadedCategories[0]?.name ?? '');
+        : modeEnabled ? firstEnabledCategory : 'Sin categoría');
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo actualizar la lista.');
@@ -133,15 +140,20 @@ export function ListScreen({ household, onChangeHouse }: Props) {
 
   const groupedItems = useMemo<CategoryGroup[]>(() => {
     const groups = new Map<string, ShoppingItem[]>();
+    const enabledNames = new Set(
+      householdCategories.filter((option) => option.enabled).map((option) => option.name),
+    );
     visibleItems.forEach((item) => {
-      const group = groups.get(item.category) ?? [];
+      const displayCategory = enabledNames.has(item.category) ? item.category : 'Sin categoría';
+      const group = groups.get(displayCategory) ?? [];
       group.push(item);
-      groups.set(item.category, group);
+      groups.set(displayCategory, group);
     });
 
     const orderedCategories = [
-      ...householdCategories.map((option) => option.name),
-      ...Array.from(groups.keys()).filter((category) => !householdCategories.some((option) => option.name === category)),
+      ...householdCategories.filter((option) => option.enabled).map((option) => option.name),
+      'Sin categoría',
+      ...Array.from(groups.keys()).filter((category) => !householdCategories.some((option) => option.enabled && option.name === category) && category !== 'Sin categoría'),
     ];
     return orderedCategories.flatMap((category) => {
       const categoryItems = groups.get(category);
@@ -236,7 +248,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
 
   function applyCatalogSuggestion(suggestion: ProductCatalogEntry): void {
     setName(suggestion.display_name);
-    if (householdCategories.some((option) => option.name === suggestion.category)) {
+    if (householdCategories.some((option) => option.enabled && option.name === suggestion.category)) {
       setCategory(suggestion.category);
     }
     setSelectedImageUrl(null);
@@ -246,6 +258,38 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   function openCategoryManager(): void {
     setCategoryError(null);
     setCategoryManagerVisible(true);
+  }
+
+  async function toggleCategoryEnabled(option: HouseholdCategory): Promise<void> {
+    const nextEnabled = !option.enabled;
+    setHouseholdCategories((current) => current.map((categoryOption) =>
+      categoryOption.id === option.id ? { ...categoryOption, enabled: nextEnabled } : categoryOption,
+    ));
+    if (!nextEnabled && category === option.name) {
+      const nextCategory = householdCategories.find((categoryOption) => categoryOption.enabled && categoryOption.id !== option.id)?.name ?? '';
+      setCategory(nextCategory);
+    }
+    try {
+      await setHouseholdCategoryEnabled(household.id, option.id, nextEnabled);
+    } catch (caught) {
+      setHouseholdCategories((current) => current.map((categoryOption) =>
+        categoryOption.id === option.id ? { ...categoryOption, enabled: option.enabled } : categoryOption,
+      ));
+      setCategoryError(caught instanceof Error ? caught.message : 'No se pudo actualizar la categoría.');
+    }
+  }
+
+  async function toggleCategoryMode(): Promise<void> {
+    const nextEnabled = !categoryModeEnabled;
+    setCategoryModeEnabled(nextEnabled);
+    if (!nextEnabled) setCategory('Sin categoría');
+    else setCategory(householdCategories.find((option) => option.enabled)?.name ?? '');
+    try {
+      await setHouseholdCategoryMode(household.id, nextEnabled);
+    } catch (caught) {
+      setCategoryModeEnabled(!nextEnabled);
+      setCategoryError(caught instanceof Error ? caught.message : 'No se pudo cambiar la vista de categorías.');
+    }
   }
 
   function openCreateCategory(): void {
@@ -283,7 +327,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     try {
       const saved = editingCategory
         ? await updateHouseholdCategory(editingCategory.id, categoryName, categoryEmoji)
-        : await createHouseholdCategory(household.id, categoryName, categoryEmoji);
+        : await createHouseholdCategory(categoryName, categoryEmoji);
       setHouseholdCategories((current) => editingCategory
         ? current.map((option) => option.id === saved.id ? saved : option)
         : [...current, saved]);
@@ -478,7 +522,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   }
 
   function renderCategoryGroup({ item: group }: { item: CategoryGroup }) {
-    const meta = CATEGORY_META[group.category as ItemCategory] ?? CATEGORY_META.Otros;
+    const categoryOption = householdCategories.find((option) => option.name === group.category);
+    const categoryEmoji = categoryOption?.emoji || '🏷️';
     const collapsed = Boolean(collapsedCategories[group.category]);
     return (
       <View style={styles.categorySection}>
@@ -491,7 +536,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             accessibilityLabel={`${collapsed ? 'Abrir' : 'Cerrar'} categoría ${group.category}`}
           >
             <View style={styles.categorySectionIcon}>
-              <Text style={styles.categorySectionEmoji}>{meta.emoji}</Text>
+              <Text style={styles.categorySectionEmoji}>{categoryEmoji}</Text>
             </View>
             <View style={styles.categorySectionCopy}>
               <Text style={styles.categorySectionTitle}>{group.category}</Text>
@@ -538,7 +583,6 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   }
 
   function renderItem({ item }: { item: ShoppingItem }) {
-    const meta = CATEGORY_META[item.category as ItemCategory] ?? CATEGORY_META.Otros;
     return (
       <AnimatedRow>
         <View style={[styles.itemRow, item.is_completed && styles.itemCompleted]}>
@@ -555,19 +599,11 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 <MaterialCommunityIcons name="magnify-plus-outline" size={12} color={COLORS.bg} />
               </View>
             </Pressable>
-          ) : (
-            <Text style={styles.itemEmoji}>{meta.emoji}</Text>
-          )}
+          ) : null}
           <Pressable style={styles.itemMain} onPress={() => void toggleItem(item)}>
             <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
               {item.name}
             </Text>
-            <View style={styles.itemMetaRow}>
-              <View style={styles.quantityBadge}>
-                <Text style={styles.quantityBadgeText}>{item.quantity} {item.quantity === '1' ? 'unidad' : 'unidades'}</Text>
-              </View>
-              <Text style={styles.itemMeta}>{item.is_completed ? 'Comprado' : 'Pendiente'}</Text>
-            </View>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
@@ -747,29 +783,21 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             </Pressable>
           </View>
         ) : null}
-        <View style={styles.categoryInfoCard}>
-          <View style={styles.categoryInfoCopy}>
-            <MaterialCommunityIcons name="information-outline" size={17} color={COLORS.cyan} />
-            <Text style={styles.categoryInfoText}>
-              Las categorías son exclusivas de esta casa. Créala desde el gestor y usa sus botones para cambiar el nombre, el emoji o borrarla.
-            </Text>
-          </View>
-          <Pressable
-            style={styles.manageCategoriesButton}
-            onPress={openCategoryManager}
-            accessibilityRole="button"
-            accessibilityLabel="Gestionar categorías de esta casa"
-          >
-            <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
-            <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
-          </Pressable>
-        </View>
-        {householdCategories.length ? (
+        <Pressable
+          style={styles.manageCategoriesButton}
+          onPress={openCategoryManager}
+          accessibilityRole="button"
+          accessibilityLabel="Gestionar categorías de esta casa"
+        >
+          <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
+          <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
+        </Pressable>
+        {categoryModeEnabled && householdCategories.some((option) => option.enabled) ? (
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.categoryRow}
-            data={householdCategories}
+            data={householdCategories.filter((option) => option.enabled)}
             keyExtractor={(option) => option.id}
             renderItem={({ item: option }) => {
               const active = category === option.name;
@@ -787,9 +815,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               );
             }}
           />
-        ) : (
-          <Text style={styles.noCategoriesText}>Aún no hay categorías. Crea la primera para poder añadir productos.</Text>
-        )}
+        ) : categoryModeEnabled ? (
+          <Text style={styles.noCategoriesText}>Activa al menos una categoría para clasificar los productos.</Text>
+        ) : null}
       </View>
 
       <Modal
@@ -814,8 +842,21 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               </Pressable>
             </View>
             <Text style={styles.categoryManagerHint}>
-              Estas categorías solo existen en esta casa. Añade las que necesites y usa el lápiz para editar nombre o emoji.
+              Las categorías son comunes a todas las casas. Aquí eliges cuáles quieres usar en esta vivienda.
             </Text>
+            <View style={styles.categoryModeRow}>
+              <View style={styles.categoryModeCopy}>
+                <Text style={styles.categoryModeTitle}>Modo categorías</Text>
+                <Text style={styles.categoryModeText}>Agrupa la lista por secciones y muestra sus emojis.</Text>
+              </View>
+              <Switch
+                value={categoryModeEnabled}
+                onValueChange={() => void toggleCategoryMode()}
+                trackColor={{ false: COLORS.lineSoft, true: '#4d7f45' }}
+                thumbColor={categoryModeEnabled ? COLORS.lime : COLORS.muted}
+                accessibilityLabel="Activar o desactivar modo categorías"
+              />
+            </View>
             <ScrollView
               style={styles.categoryManagerList}
               contentContainerStyle={styles.categoryManagerListContent}
@@ -825,6 +866,13 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 <View key={option.id} style={styles.categoryManagerRow}>
                   <Text style={styles.categoryManagerEmoji}>{option.emoji}</Text>
                   <Text style={styles.categoryManagerName} numberOfLines={1}>{option.name}</Text>
+                  <Switch
+                    value={option.enabled}
+                    onValueChange={() => void toggleCategoryEnabled(option)}
+                    trackColor={{ false: COLORS.lineSoft, true: '#4d7f45' }}
+                    thumbColor={option.enabled ? COLORS.lime : COLORS.muted}
+                    accessibilityLabel={`${option.enabled ? 'Desactivar' : 'Activar'} ${option.name}`}
+                  />
                   <Pressable
                     style={styles.categoryManagerEditButton}
                     onPress={() => openEditCategory(option.name)}
@@ -1239,15 +1287,27 @@ export function ListScreen({ household, onChangeHouse }: Props) {
           </Text>
         </View>
       ) : (
-        <FlatList
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          data={groupedItems}
-          keyExtractor={(group) => group.category}
-          renderItem={renderCategoryGroup}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        />
+        categoryModeEnabled ? (
+          <FlatList
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            data={groupedItems}
+            keyExtractor={(group) => group.category}
+            renderItem={renderCategoryGroup}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          />
+        ) : (
+          <FlatList
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            data={visibleItems}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          />
+        )
       )}
       <View style={styles.searchBar}>
         <MaterialCommunityIcons name="magnify" size={20} color={COLORS.mutedDeep} />
@@ -1642,13 +1702,8 @@ const styles = StyleSheet.create({
   itemImageButton: { position: 'relative', width: 44, height: 44, marginRight: 10, borderRadius: 12 },
   itemImage: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#f4f6f1' },
   itemImageZoomBadge: { position: 'absolute', right: -3, bottom: -3, alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.lime },
-  itemEmoji: { fontSize: 15 },
   itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
-  itemMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 5 },
-  quantityBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: '#173a32' },
-  quantityBadgeText: { color: COLORS.limeDeep, fontSize: 10, fontWeight: '800' },
-  itemMeta: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '700' },
   editButton: { padding: 7 },
   deleteButton: { padding: 7 },
   deletePressed: { opacity: 0.5 },
@@ -1696,9 +1751,13 @@ const styles = StyleSheet.create({
   editModal: { width: '100%', maxWidth: 480, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
   categoryManagerModal: { width: '100%', maxWidth: 440, maxHeight: '82%', padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
   categoryManagerHint: { marginTop: 14, color: COLORS.muted, fontSize: 12, lineHeight: 18 },
+  categoryModeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 13, padding: 10, borderRadius: 13, backgroundColor: '#12302d' },
+  categoryModeCopy: { flex: 1 },
+  categoryModeTitle: { color: COLORS.textSoft, fontSize: 13, fontWeight: '800' },
+  categoryModeText: { marginTop: 3, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
   categoryManagerList: { marginTop: 13 },
   categoryManagerListContent: { gap: 7, paddingBottom: 3 },
-  categoryManagerRow: { flexDirection: 'row', alignItems: 'center', minHeight: 51, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.panelDeep },
+  categoryManagerRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: 51, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.panelDeep },
   categoryManagerEmoji: { width: 32, fontSize: 21, textAlign: 'center' },
   categoryManagerName: { flex: 1, marginLeft: 9, color: COLORS.textSoft, fontSize: 14, fontWeight: '800' },
   categoryManagerEditButton: { alignItems: 'center', justifyContent: 'center', width: 35, height: 35, borderRadius: 11, backgroundColor: '#143331' },

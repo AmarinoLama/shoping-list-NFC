@@ -33,6 +33,38 @@ create table if not exists public.household_categories (
 create unique index if not exists household_categories_name_idx
   on public.household_categories(household_id, lower(name));
 
+-- Categories are global across houses. Each household only stores which ones
+-- it wants to use in its own list.
+create table if not exists public.product_categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(trim(name)) between 1 and 40),
+  emoji text not null default '🏷️',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists product_categories_name_idx
+  on public.product_categories(lower(name));
+
+create table if not exists public.household_category_settings (
+  household_id uuid not null references public.households(id) on delete cascade,
+  category_id uuid not null references public.product_categories(id) on delete cascade,
+  enabled boolean not null default true,
+  primary key (household_id, category_id)
+);
+
+-- Migrate categories created by the previous per-house version.
+insert into public.product_categories (name, emoji)
+select distinct on (lower(name)) name, emoji
+from public.household_categories
+order by lower(name), created_at asc
+on conflict do nothing;
+
+insert into public.household_category_settings (household_id, category_id, enabled)
+select hc.household_id, pc.id, true
+from public.household_categories hc
+join public.product_categories pc on lower(pc.name) = lower(hc.name)
+on conflict (household_id, category_id) do nothing;
+
 create table if not exists public.household_members (
   household_id uuid not null references public.households(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -102,6 +134,7 @@ on conflict (normalized_name) do update set
 
 -- Compatibility with the old account-based schema.
 alter table public.households alter column created_by drop not null;
+alter table public.households add column if not exists category_mode_enabled boolean not null default true;
 alter table public.shopping_items alter column created_by drop not null;
 alter table public.shopping_items add column if not exists image_url text;
 
@@ -109,6 +142,8 @@ create index if not exists household_members_user_id_idx
   on public.household_members(user_id);
 create index if not exists household_categories_household_id_idx
   on public.household_categories(household_id);
+create index if not exists household_category_settings_category_id_idx
+  on public.household_category_settings(category_id);
 create index if not exists shopping_items_household_id_idx
   on public.shopping_items(household_id);
 create index if not exists shopping_items_pending_idx
@@ -174,6 +209,105 @@ $$;
 -- RPC API used by the app
 -- ---------------------------------------------------------------------------
 
+create or replace function public.rename_product_category(
+  target_category_id uuid,
+  category_name text,
+  category_emoji text
+)
+returns public.product_categories
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_category public.product_categories;
+  updated_category public.product_categories;
+begin
+  if char_length(trim(category_name)) < 1 then
+    raise exception 'Category name cannot be empty';
+  end if;
+
+  select * into current_category
+  from public.product_categories
+  where id = target_category_id;
+
+  if current_category.id is null then
+    raise exception 'Category not found';
+  end if;
+
+  update public.product_categories
+  set name = trim(category_name),
+      emoji = coalesce(nullif(trim(category_emoji), ''), '🏷️')
+  where id = target_category_id
+  returning * into updated_category;
+
+  update public.shopping_items
+  set category = updated_category.name
+  where category = current_category.name;
+
+  update public.product_catalog
+  set category = updated_category.name
+  where category = current_category.name;
+
+  return updated_category;
+end;
+$$;
+
+create or replace function public.delete_product_category(target_category_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_category public.product_categories;
+begin
+  select * into current_category
+  from public.product_categories
+  where id = target_category_id;
+
+  if current_category.id is null then
+    raise exception 'Category not found';
+  end if;
+
+  update public.shopping_items
+  set category = 'Sin categoría'
+  where category = current_category.name;
+
+  update public.product_catalog
+  set category = 'Sin categoría'
+  where category = current_category.name;
+
+  delete from public.product_categories where id = target_category_id;
+end;
+$$;
+
+create or replace function public.set_household_category_mode(
+  target_household_id uuid,
+  enabled boolean
+)
+returns public.households
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated_household public.households;
+begin
+  update public.households
+  set category_mode_enabled = enabled
+  where id = target_household_id
+  returning * into updated_household;
+
+  if updated_household.id is null then
+    raise exception 'Household not found';
+  end if;
+
+  return updated_household;
+end;
+$$;
+
+-- Legacy per-house functions are kept below for compatibility with older clients.
 drop function if exists public.rename_household_category(uuid, text);
 
 create or replace function public.rename_household_category(
@@ -354,6 +488,8 @@ $$;
 
 alter table public.households enable row level security;
 alter table public.household_categories enable row level security;
+alter table public.product_categories enable row level security;
+alter table public.household_category_settings enable row level security;
 alter table public.household_members enable row level security;
 alter table public.shopping_items enable row level security;
 alter table public.household_products enable row level security;
@@ -389,6 +525,50 @@ using (true)
 with check (true);
 create policy "Anyone can delete household categories"
 on public.household_categories for delete
+to anon, authenticated
+using (true);
+
+drop policy if exists "Anyone can view product categories" on public.product_categories;
+drop policy if exists "Anyone can add product categories" on public.product_categories;
+drop policy if exists "Anyone can update product categories" on public.product_categories;
+drop policy if exists "Anyone can delete product categories" on public.product_categories;
+create policy "Anyone can view product categories"
+on public.product_categories for select
+to anon, authenticated
+using (true);
+create policy "Anyone can add product categories"
+on public.product_categories for insert
+to anon, authenticated
+with check (true);
+create policy "Anyone can update product categories"
+on public.product_categories for update
+to anon, authenticated
+using (true)
+with check (true);
+create policy "Anyone can delete product categories"
+on public.product_categories for delete
+to anon, authenticated
+using (true);
+
+drop policy if exists "Anyone can view household category settings" on public.household_category_settings;
+drop policy if exists "Anyone can add household category settings" on public.household_category_settings;
+drop policy if exists "Anyone can update household category settings" on public.household_category_settings;
+drop policy if exists "Anyone can delete household category settings" on public.household_category_settings;
+create policy "Anyone can view household category settings"
+on public.household_category_settings for select
+to anon, authenticated
+using (true);
+create policy "Anyone can add household category settings"
+on public.household_category_settings for insert
+to anon, authenticated
+with check (true);
+create policy "Anyone can update household category settings"
+on public.household_category_settings for update
+to anon, authenticated
+using (true)
+with check (true);
+create policy "Anyone can delete household category settings"
+on public.household_category_settings for delete
 to anon, authenticated
 using (true);
 
@@ -466,6 +646,8 @@ with check (true);
 grant usage on schema public to anon, authenticated;
 grant select on public.households to anon, authenticated;
 grant select, insert, update, delete on public.household_categories to anon, authenticated;
+grant select, insert, update, delete on public.product_categories to anon, authenticated;
+grant select, insert, update, delete on public.household_category_settings to anon, authenticated;
 grant select, insert, update, delete on public.shopping_items to anon, authenticated;
 grant select, insert, update on public.household_products to anon, authenticated;
 grant select, insert, update on public.product_catalog to anon, authenticated;
@@ -473,6 +655,13 @@ revoke all on public.household_members from anon, authenticated;
 
 revoke all on function public.is_household_member(uuid) from public;
 grant execute on function public.is_household_member(uuid) to authenticated;
+
+revoke all on function public.rename_product_category(uuid, text, text) from public;
+revoke all on function public.delete_product_category(uuid) from public;
+revoke all on function public.set_household_category_mode(uuid, boolean) from public;
+grant execute on function public.rename_product_category(uuid, text, text) to anon, authenticated;
+grant execute on function public.delete_product_category(uuid) to anon, authenticated;
+grant execute on function public.set_household_category_mode(uuid, boolean) to anon, authenticated;
 
 revoke all on function public.rename_household_category(uuid, text, text) from public;
 revoke all on function public.delete_household_category(uuid) from public;
