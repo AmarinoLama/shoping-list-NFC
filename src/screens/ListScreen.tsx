@@ -544,19 +544,6 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 {group.pendingCount ? `${group.pendingCount} por comprar` : 'Todo comprado'} · {group.items.length} {group.items.length === 1 ? 'producto' : 'productos'}
               </Text>
             </View>
-            <MaterialCommunityIcons
-              name={collapsed ? 'chevron-down' : 'chevron-up'}
-              size={21}
-              color={COLORS.muted}
-            />
-          </Pressable>
-          <Pressable
-            style={styles.categoryManageButton}
-            onPress={() => openEditCategory(group.category)}
-            accessibilityRole="button"
-            accessibilityLabel={`Editar o borrar la categoría ${group.category}`}
-          >
-            <MaterialCommunityIcons name="pencil-outline" size={15} color={COLORS.cyan} />
           </Pressable>
           {group.pendingCount ? (
             <Pressable
@@ -570,6 +557,19 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               <Text style={styles.categorySelectText}>Todos</Text>
             </Pressable>
           ) : null}
+          <Pressable
+            style={styles.categoryExpandButton}
+            onPress={() => toggleCategory(group.category)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: !collapsed }}
+            accessibilityLabel={`${collapsed ? 'Abrir' : 'Cerrar'} categoría ${group.category}`}
+          >
+            <MaterialCommunityIcons
+              name={collapsed ? 'chevron-down' : 'chevron-up'}
+              size={21}
+              color={COLORS.muted}
+            />
+          </Pressable>
         </View>
         {!collapsed ? (
           <View style={styles.categoryItems}>
@@ -1673,8 +1673,8 @@ const styles = StyleSheet.create({
   categorySectionCopy: { flex: 1, minWidth: 0 },
   categorySectionTitle: { color: COLORS.textSoft, fontSize: 14, fontWeight: '900' },
   categorySectionMeta: { marginTop: 3, color: COLORS.muted, fontSize: 10, fontWeight: '700' },
-  categoryManageButton: { alignItems: 'center', justifyContent: 'center', width: 31, height: 31, marginLeft: 3, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 9, backgroundColor: COLORS.panelDeep },
   categorySelectButton: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 34, paddingHorizontal: 8, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 10, backgroundColor: COLORS.panelDeep },
+  categoryExpandButton: { alignItems: 'center', justifyContent: 'center', width: 32, height: 34, marginLeft: 3, borderRadius: 10, backgroundColor: COLORS.panelDeep },
   categorySelectText: { color: COLORS.lime, fontSize: 10, fontWeight: '900' },
   itemRow: {
     flexDirection: 'row',
