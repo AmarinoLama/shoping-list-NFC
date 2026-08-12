@@ -10,8 +10,9 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 - Marcar, borrar y limpiar productos completados.
 - Actualización realtime entre todos los móviles del hogar.
 - Rutas NFC desde el selector de casas para abrir una casa directamente.
-- Imágenes opcionales por producto, compartidas entre todos los miembros del hogar.
-- Búsqueda automática de imágenes de catálogo, catálogo compartido de productos ya comprados y opción de hacer una foto desde el móvil.
+- Imágenes opcionales por producto, visibles para todos los miembros mientras la compra está pendiente.
+- Catálogo global de productos ya usados: al escribir en cualquier casa aparecen sugerencias para autocompletar nombre y categoría.
+- Búsqueda automática de imágenes y opción de hacer una foto desde el móvil.
 - Persistencia local de la autorización con AsyncStorage.
 - Selector de casas como pantalla inicial: la autorización se solicita al entrar en el menú y después permite gestionar las casas sin repetirla.
 - Autorización de casa con contraseña, control para mostrar/ocultar el password y recuerdo local del acceso.
@@ -29,7 +30,7 @@ Al entrar en el menú de casas se solicita la autorización configurada en `EXPO
 5. Ejecuta el contenido completo de `supabase/database.sql` en el SQL Editor de Supabase.
 6. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
-El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage para que la vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
+El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo global de productos. El catálogo conserva nombre, categoría y número de compras para sugerir productos entre casas; las fotos son opcionales, se muestran mientras la compra está pendiente y se eliminan al marcarla como completada. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage. No uses nunca una service-role key dentro de la aplicación móvil.
 
 ### Error 404 al crear un hogar (PGRST202)
 

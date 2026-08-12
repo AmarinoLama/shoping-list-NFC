@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { getAppBaseUrl } from './app-url';
 import { HOUSEHOLD_AUTHORIZATION_PASSWORD } from './authorization';
-import type { Household, HouseholdProduct, ItemCategory, ShoppingItem } from '../types';
+import type { Household, ItemCategory, ProductCatalogEntry, ShoppingItem } from '../types';
 
 export async function getMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase.rpc('get_households');
@@ -50,48 +50,49 @@ export function normalizeProductName(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-export async function getHouseholdProduct(
-  householdId: string,
-  name: string,
-): Promise<HouseholdProduct | null> {
+export async function searchProductCatalog(name: string): Promise<ProductCatalogEntry[]> {
   const normalizedName = normalizeProductName(name);
-  if (!normalizedName) return null;
+  if (normalizedName.length < 2) return [];
   const { data, error } = await supabase
-    .from('household_products')
+    .from('product_catalog')
     .select('*')
-    .eq('household_id', householdId)
-    .eq('normalized_name', normalizedName)
-    .maybeSingle();
+    .ilike('normalized_name', `${normalizedName}%`)
+    .order('purchase_count', { ascending: false })
+    .order('display_name', { ascending: true })
+    .limit(6);
   if (error) throw error;
-  return (data as HouseholdProduct | null) ?? null;
+  return (data ?? []) as ProductCatalogEntry[];
 }
 
-export async function rememberPurchasedProduct(input: {
-  householdId: string;
+export async function rememberProductCatalog(input: {
   name: string;
   category: ItemCategory;
-  imageUrl?: string | null;
-}): Promise<HouseholdProduct> {
+}): Promise<ProductCatalogEntry> {
   const normalizedName = normalizeProductName(input.name);
-  const existing = await getHouseholdProduct(input.householdId, input.name);
+  const { data: existing, error: lookupError } = await supabase
+    .from('product_catalog')
+    .select('purchase_count')
+    .eq('normalized_name', normalizedName)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
   const { data, error } = await supabase
-    .from('household_products')
+    .from('product_catalog')
     .upsert(
       {
-        household_id: input.householdId,
         normalized_name: normalizedName,
         display_name: input.name.trim(),
         category: input.category,
-        image_url: input.imageUrl ?? existing?.image_url ?? null,
+        image_url: null,
         purchase_count: (existing?.purchase_count ?? 0) + 1,
         last_purchased_at: new Date().toISOString(),
       },
-      { onConflict: 'household_id,normalized_name' },
+      { onConflict: 'normalized_name' },
     )
     .select()
     .single();
   if (error) throw error;
-  return data as HouseholdProduct;
+  return data as ProductCatalogEntry;
 }
 
 export async function getShoppingItems(householdId: string): Promise<ShoppingItem[]> {
@@ -152,7 +153,7 @@ export async function updateShoppingItem(input: {
 export async function setItemCompleted(id: string, completed: boolean): Promise<void> {
   const { error } = await supabase
     .from('shopping_items')
-    .update({ is_completed: completed })
+    .update(completed ? { is_completed: true, image_url: null } : { is_completed: false })
     .eq('id', id);
   if (error) throw error;
 }

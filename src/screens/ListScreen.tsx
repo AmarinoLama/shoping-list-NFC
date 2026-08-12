@@ -22,16 +22,17 @@ import {
   addShoppingItem,
   clearCompletedItems,
   deleteShoppingItem,
-  getHouseholdProduct,
   getShoppingItems,
-  rememberPurchasedProduct,
+  normalizeProductName,
+  rememberProductCatalog,
+  searchProductCatalog,
   setItemCompleted,
   subscribeToShoppingItems,
   updateShoppingItem,
 } from '../lib/shopping';
-import { searchProductImages, uploadProductImage, type ProductImageCandidate } from '../lib/product-images';
+import { deleteProductImage, searchProductImages, uploadProductImage, type ProductImageCandidate } from '../lib/product-images';
 import { CATEGORY_META, COLORS } from '../lib/ui';
-import type { Household, ItemCategory, ShoppingItem } from '../types';
+import type { Household, ItemCategory, ProductCatalogEntry, ShoppingItem } from '../types';
 import { ITEM_CATEGORIES } from '../types';
 
 type Props = {
@@ -63,6 +64,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [editCategory, setEditCategory] = useState<ItemCategory>('Despensa');
   const [quantityPickerTarget, setQuantityPickerTarget] = useState<'new' | 'edit' | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [catalogSuggestions, setCatalogSuggestions] = useState<ProductCatalogEntry[]>([]);
   const [imageCandidates, setImageCandidates] = useState<ProductImageCandidate[]>([]);
   const [imageSearchBusy, setImageSearchBusy] = useState(false);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
@@ -118,39 +120,42 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   useEffect(() => {
     const requestId = ++imageSearchRequest.current;
     const query = name.trim();
-    if (query.length < 3) {
+    setCatalogSuggestions([]);
+    if (query.length < 2) {
       setImageCandidates([]);
       setImageSearchBusy(false);
       return;
     }
     const timeout = setTimeout(() => {
       setImageSearchBusy(true);
-      void getHouseholdProduct(household.id, query)
-        .catch(() => null)
-        .then((savedProduct) => {
-          if (imageSearchRequest.current !== requestId) return null;
-          if (savedProduct?.image_url) {
-            setSelectedImageUrl(savedProduct.image_url);
+      void (async () => {
+        try {
+          const suggestions = await searchProductCatalog(query).catch(() => []);
+          if (imageSearchRequest.current !== requestId) return;
+          setCatalogSuggestions(suggestions);
+          const exactMatch = suggestions.find(
+            (suggestion) => suggestion.normalized_name === normalizeProductName(query),
+          );
+          if (exactMatch?.image_url) {
+            setSelectedImageUrl(exactMatch.image_url);
             setImageCandidates([
               {
-                url: savedProduct.image_url,
-                productName: savedProduct.display_name,
+                url: exactMatch.image_url,
+                productName: exactMatch.display_name,
                 source: 'saved',
               },
             ]);
-            return null;
+            return;
           }
-          return searchProductImages(query);
-        })
-        .then((results) => {
-          if (results && imageSearchRequest.current === requestId) setImageCandidates(results);
-        })
-        .finally(() => {
+          const results = await searchProductImages(query);
+          if (imageSearchRequest.current === requestId) setImageCandidates(results);
+        } finally {
           if (imageSearchRequest.current === requestId) setImageSearchBusy(false);
-        });
-    }, 700);
+        }
+      })();
+    }, 450);
     return () => clearTimeout(timeout);
-  }, [name, household.id]);
+  }, [name]);
 
   function startEditing(item: ShoppingItem): void {
     setEditingItem(item);
@@ -193,6 +198,21 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   function changeProductName(value: string): void {
     setName(value);
     setSelectedImageUrl(null);
+    setImageCandidates([]);
+  }
+
+  function applyCatalogSuggestion(suggestion: ProductCatalogEntry): void {
+    setName(suggestion.display_name);
+    if ((ITEM_CATEGORIES as readonly string[]).includes(suggestion.category)) {
+      setCategory(suggestion.category as ItemCategory);
+    }
+    setSelectedImageUrl(suggestion.image_url);
+    setCatalogSuggestions([]);
+    setImageCandidates(suggestion.image_url ? [{
+      url: suggestion.image_url,
+      productName: suggestion.display_name,
+      source: 'saved',
+    }] : []);
   }
 
   async function takeProductPhoto(): Promise<void> {
@@ -267,11 +287,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       setSelectedImageUrl(null);
       setImageCandidates([]);
       try {
-        await rememberPurchasedProduct({
-          householdId: household.id,
+        await rememberProductCatalog({
           name,
           category,
-          imageUrl: selectedImageUrl,
         });
       } catch {
         // The catalog is an enhancement; an unapplied migration must not block purchases.
@@ -288,11 +306,16 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     if (completing) setCelebrate((value) => value + 1);
     setItems((current) =>
       current.map((candidate) =>
-        candidate.id === item.id ? { ...candidate, is_completed: completing } : candidate,
+        candidate.id === item.id
+          ? { ...candidate, is_completed: completing, image_url: completing ? null : candidate.image_url }
+          : candidate,
       ),
     );
     try {
       await setItemCompleted(item.id, completing);
+      if (completing && item.image_url) {
+        await deleteProductImage(item.image_url);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo actualizar el producto.');
       void refresh();
@@ -478,6 +501,38 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             )}
           </Pressable>
         </View>
+        {catalogSuggestions.length ? (
+          <View style={styles.catalogSuggestions}>
+            <View style={styles.catalogSuggestionHeader}>
+              <MaterialCommunityIcons name="history" size={15} color={COLORS.cyan} />
+              <Text style={styles.catalogSuggestionLabel}>Productos usados anteriormente</Text>
+            </View>
+            {catalogSuggestions.map((suggestion) => (
+              <Pressable
+                key={suggestion.id}
+                style={styles.catalogSuggestion}
+                onPress={() => applyCatalogSuggestion(suggestion)}
+                accessibilityRole="button"
+                accessibilityLabel={`Autocompletar ${suggestion.display_name}`}
+              >
+                <View style={styles.catalogSuggestionIcon}>
+                  {suggestion.image_url ? (
+                    <Image source={{ uri: suggestion.image_url }} style={styles.catalogSuggestionImage} />
+                  ) : (
+                    <MaterialCommunityIcons name="cart-outline" size={17} color={COLORS.cyan} />
+                  )}
+                </View>
+                <View style={styles.catalogSuggestionCopy}>
+                  <Text style={styles.catalogSuggestionName}>{suggestion.display_name}</Text>
+                  <Text style={styles.catalogSuggestionMeta}>
+                    {suggestion.category} · comprado {suggestion.purchase_count} {suggestion.purchase_count === 1 ? 'vez' : 'veces'}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="arrow-up-left" size={17} color={COLORS.lime} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {imageSearchBusy ? (
           <View style={styles.imageSearchStatus}>
             <ActivityIndicator color={COLORS.cyan} size="small" />
@@ -1025,6 +1080,15 @@ const styles = StyleSheet.create({
   progressText: { color: COLORS.lime, fontSize: 11, fontWeight: '800', width: 34, textAlign: 'right' },
   addCard: { marginTop: 16, padding: 12, borderRadius: 18, backgroundColor: COLORS.panel },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  catalogSuggestions: { marginTop: 10, padding: 9, borderRadius: 14, backgroundColor: COLORS.panelDeep, borderWidth: 1, borderColor: COLORS.line },
+  catalogSuggestionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 3, paddingBottom: 5 },
+  catalogSuggestionLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  catalogSuggestion: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 49, paddingVertical: 5, borderTopWidth: 1, borderTopColor: COLORS.line },
+  catalogSuggestionIcon: { alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 10, backgroundColor: '#143331', overflow: 'hidden' },
+  catalogSuggestionImage: { width: '100%', height: '100%', backgroundColor: '#f4f6f1' },
+  catalogSuggestionCopy: { flex: 1, minWidth: 0 },
+  catalogSuggestionName: { color: COLORS.textSoft, fontSize: 13, fontWeight: '800' },
+  catalogSuggestionMeta: { marginTop: 2, color: COLORS.mutedDeep, fontSize: 10 },
   addRowCompact: { flexWrap: 'wrap' },
   itemInput: {
     flex: 1,

@@ -56,6 +56,39 @@ create table if not exists public.household_products (
   unique (household_id, normalized_name)
 );
 
+-- Global memory shared by every house. Names, categories and purchase counts
+-- survive across households; photos are intentionally not retained here.
+create table if not exists public.product_catalog (
+  id uuid primary key default gen_random_uuid(),
+  normalized_name text not null unique,
+  display_name text not null,
+  image_url text,
+  category text not null default 'Otros',
+  purchase_count integer not null default 0 check (purchase_count >= 0),
+  last_purchased_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+-- Migrate names remembered by older versions into the global catalog.
+insert into public.product_catalog (
+  normalized_name,
+  display_name,
+  category,
+  purchase_count,
+  last_purchased_at
+)
+select distinct on (normalized_name)
+  normalized_name,
+  display_name,
+  category,
+  sum(purchase_count) over (partition by normalized_name),
+  max(last_purchased_at) over (partition by normalized_name)
+from public.household_products
+order by normalized_name, last_purchased_at desc
+on conflict (normalized_name) do update set
+  purchase_count = greatest(public.product_catalog.purchase_count, excluded.purchase_count),
+  last_purchased_at = greatest(public.product_catalog.last_purchased_at, excluded.last_purchased_at);
+
 -- Compatibility with the old account-based schema.
 alter table public.households alter column created_by drop not null;
 alter table public.shopping_items alter column created_by drop not null;
@@ -69,6 +102,8 @@ create index if not exists shopping_items_pending_idx
   on public.shopping_items(household_id, is_completed);
 create index if not exists household_products_lookup_idx
   on public.household_products(household_id, normalized_name);
+create index if not exists product_catalog_lookup_idx
+  on public.product_catalog(normalized_name text_pattern_ops);
 
 -- ---------------------------------------------------------------------------
 -- Triggers and helper functions
@@ -239,6 +274,7 @@ alter table public.households enable row level security;
 alter table public.household_members enable row level security;
 alter table public.shopping_items enable row level security;
 alter table public.household_products enable row level security;
+alter table public.product_catalog enable row level security;
 
 -- Remove policies created by both the old account flow and previous anonymous
 -- migrations before installing the final policy set.
@@ -302,11 +338,29 @@ to anon, authenticated
 using (true)
 with check (true);
 
+drop policy if exists "Anyone can view product catalog" on public.product_catalog;
+drop policy if exists "Anyone can add product catalog entries" on public.product_catalog;
+drop policy if exists "Anyone can update product catalog entries" on public.product_catalog;
+create policy "Anyone can view product catalog"
+on public.product_catalog for select
+to anon, authenticated
+using (true);
+create policy "Anyone can add product catalog entries"
+on public.product_catalog for insert
+to anon, authenticated
+with check (true);
+create policy "Anyone can update product catalog entries"
+on public.product_catalog for update
+to anon, authenticated
+using (true)
+with check (true);
+
 -- Supabase requires table privileges in addition to RLS policies.
 grant usage on schema public to anon, authenticated;
 grant select on public.households to anon, authenticated;
 grant select, insert, update, delete on public.shopping_items to anon, authenticated;
 grant select, insert, update on public.household_products to anon, authenticated;
+grant select, insert, update on public.product_catalog to anon, authenticated;
 revoke all on public.household_members from anon, authenticated;
 
 revoke all on function public.is_household_member(uuid) from public;
@@ -353,10 +407,18 @@ drop policy if exists "Household members can upload product images" on storage.o
 drop policy if exists "Household members can delete product images" on storage.objects;
 drop policy if exists "Anyone can upload product images" on storage.objects;
 drop policy if exists "Anonymous clients can upload product images" on storage.objects;
+drop policy if exists "Anonymous clients can delete product images" on storage.objects;
 create policy "Anonymous clients can upload product images"
 on storage.objects for insert
 to anon, authenticated
 with check (
+  bucket_id = 'product-images'
+  and lower(right(name, 4)) = '.jpg'
+);
+create policy "Anonymous clients can delete product images"
+on storage.objects for delete
+to anon, authenticated
+using (
   bucket_id = 'product-images'
   and lower(right(name, 4)) = '.jpg'
 );

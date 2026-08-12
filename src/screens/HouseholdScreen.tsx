@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -51,6 +50,7 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showJoinHelp, setShowJoinHelp] = useState(false);
   const [settingsHousehold, setSettingsHousehold] = useState<Household | null>(null);
+  const [deleteConfirmationHousehold, setDeleteConfirmationHousehold] = useState<Household | null>(null);
   const [settingsName, setSettingsName] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -163,14 +163,8 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
   }
 
   function confirmDeleteHousehold(household: Household): void {
-    Alert.alert(
-      'Borrar casa',
-      `Se borrará ${household.name} y su lista compartida. Esta acción no se puede deshacer.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Borrar', style: 'destructive', onPress: () => void removeHousehold(household) },
-      ],
-    );
+    setError(null);
+    setDeleteConfirmationHousehold(household);
   }
 
   async function removeHousehold(household: Household): Promise<void> {
@@ -478,7 +472,10 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               </View>
               <Pressable
                 style={styles.closeModalButton}
-                onPress={() => setSettingsHousehold(null)}
+                onPress={() => {
+                  setSettingsHousehold(null);
+                  setError(null);
+                }}
                 accessibilityLabel="Cerrar configuración"
               >
                 <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
@@ -495,8 +492,16 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               returnKeyType="done"
               onSubmitEditing={() => void saveHouseholdSettings()}
             />
+            {error ? <ErrorBox message={error} /> : null}
             <View style={styles.settingsActions}>
-              <Pressable style={styles.cancelSettingsButton} onPress={() => setSettingsHousehold(null)} disabled={busy}>
+              <Pressable
+                style={styles.cancelSettingsButton}
+                onPress={() => {
+                  setSettingsHousehold(null);
+                  setError(null);
+                }}
+                disabled={busy}
+              >
                 <Text style={styles.cancelSettingsText}>Cancelar</Text>
               </Pressable>
               <Pressable
@@ -520,6 +525,47 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
             </Pressable>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        visible={deleteConfirmationHousehold !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirmationHousehold(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.deleteModal}>
+            <View style={styles.deleteIcon}>
+              <MaterialCommunityIcons name="trash-can-outline" size={24} color={COLORS.danger} />
+            </View>
+            <Text style={styles.deleteTitle}>¿Borrar esta casa?</Text>
+            <Text style={styles.deleteDescription}>
+              Se borrará {deleteConfirmationHousehold?.name} y toda su lista compartida. Esta acción no se puede deshacer.
+            </Text>
+            <View style={styles.deleteActions}>
+              <Pressable
+                style={styles.cancelSettingsButton}
+                onPress={() => setDeleteConfirmationHousehold(null)}
+                disabled={busy}
+              >
+                <Text style={styles.cancelSettingsText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.confirmDeleteButton, pressed && styles.deletePressed]}
+                onPress={() => {
+                  const household = deleteConfirmationHousehold;
+                  setDeleteConfirmationHousehold(null);
+                  if (household) void removeHousehold(household);
+                }}
+                disabled={busy || !deleteConfirmationHousehold}
+              >
+                {busy ? <ActivityIndicator color={COLORS.text} size="small" /> : <>
+                  <Text style={styles.confirmDeleteText}>Borrar</Text>
+                  <MaterialCommunityIcons name="trash-can-outline" size={18} color={COLORS.text} />
+                </>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -671,6 +717,13 @@ const styles = StyleSheet.create({
   saveSettingsButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 50, borderRadius: 14, backgroundColor: COLORS.lime },
   deleteHouseholdButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 46, marginTop: 16, borderWidth: 1, borderColor: '#5a2b26', borderRadius: 14 },
   deleteHouseholdText: { color: COLORS.danger, fontSize: 14, fontWeight: '800' },
+  deleteModal: { width: '100%', maxWidth: 400, padding: 20, borderWidth: 1, borderColor: '#5a2b26', borderRadius: 24, backgroundColor: COLORS.panel },
+  deleteIcon: { alignItems: 'center', justifyContent: 'center', width: 50, height: 50, borderRadius: 16, backgroundColor: '#2a1613' },
+  deleteTitle: { marginTop: 15, color: COLORS.text, fontSize: 21, fontWeight: '800' },
+  deleteDescription: { marginTop: 8, color: COLORS.muted, fontSize: 14, lineHeight: 20 },
+  deleteActions: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 20 },
+  confirmDeleteButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 50, borderRadius: 14, backgroundColor: COLORS.danger },
+  confirmDeleteText: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
   deletePressed: { opacity: 0.7 },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', padding: 5, marginBottom: 28 },
   backText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },

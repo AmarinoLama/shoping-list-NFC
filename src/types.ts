@@ -25,6 +25,17 @@ export type HouseholdProduct = {
   created_at: string;
 };
 
+export type ProductCatalogEntry = {
+  id: string;
+  normalized_name: string;
+  display_name: string;
+  image_url: string | null;
+  category: string;
+  purchase_count: number;
+  last_purchased_at: string;
+  created_at: string;
+};
+
 export type ShoppingItem = {
   id: string;
   household_id: string;

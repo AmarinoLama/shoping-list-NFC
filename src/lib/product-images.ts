@@ -60,6 +60,18 @@ export async function searchProductImages(query: string): Promise<ProductImageCa
   }
 }
 
+export async function deleteProductImage(publicUrl: string | null): Promise<void> {
+  if (!publicUrl) return;
+  const marker = '/storage/v1/object/public/product-images/';
+  const markerIndex = publicUrl.indexOf(marker);
+  if (markerIndex < 0) return;
+
+  const path = decodeURIComponent(publicUrl.slice(markerIndex + marker.length));
+  if (!path) return;
+  const { error } = await supabase.storage.from('product-images').remove([path]);
+  if (error) throw error;
+}
+
 export async function uploadProductImage(input: {
   householdId: string;
   uri: string;
