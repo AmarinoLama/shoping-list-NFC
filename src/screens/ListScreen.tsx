@@ -51,6 +51,7 @@ type CategoryGroup = {
 const CONFETTI_COLORS = [COLORS.lime, COLORS.cyan, COLORS.amber, COLORS.pink, COLORS.violet];
 const CONFETTI_EMOJI = ['⭐', '🛒', '🎉', '🧃'];
 const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index + 1));
+const CATEGORY_EMOJI_OPTIONS = ['🏷️', '🍎', '🥕', '🥩', '🧀', '🥖', '❄️', '🥤', '🥫', '🍪', '🧴', '🧺', '🐾', '🍼', '🏠', '✨'];
 const QUANTITY_ITEM_HEIGHT = 48;
 
 export function ListScreen({ household, onChangeHouse }: Props) {
@@ -78,9 +79,11 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [householdCategories, setHouseholdCategories] = useState<HouseholdCategory[]>([]);
+  const [categoryManagerVisible, setCategoryManagerVisible] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<HouseholdCategory | null>(null);
   const [categoryName, setCategoryName] = useState('');
+  const [categoryEmoji, setCategoryEmoji] = useState('🏷️');
   const [confirmingCategoryDelete, setConfirmingCategoryDelete] = useState(false);
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -240,11 +243,18 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     setCatalogSuggestions([]);
   }
 
+  function openCategoryManager(): void {
+    setCategoryError(null);
+    setCategoryManagerVisible(true);
+  }
+
   function openCreateCategory(): void {
     setEditingCategory(null);
     setCategoryName('');
+    setCategoryEmoji('🏷️');
     setConfirmingCategoryDelete(false);
     setCategoryError(null);
+    setCategoryManagerVisible(false);
     setCategoryModalVisible(true);
   }
 
@@ -256,7 +266,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     }
     setEditingCategory(storedCategory);
     setCategoryName(storedCategory.name);
+    setCategoryEmoji(storedCategory.emoji || '🏷️');
     setConfirmingCategoryDelete(false);
+    setCategoryManagerVisible(false);
     setCategoryError(null);
     setCategoryModalVisible(true);
   }
@@ -270,8 +282,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     setCategoryError(null);
     try {
       const saved = editingCategory
-        ? await updateHouseholdCategory(editingCategory.id, categoryName)
-        : await createHouseholdCategory(household.id, categoryName);
+        ? await updateHouseholdCategory(editingCategory.id, categoryName, categoryEmoji)
+        : await createHouseholdCategory(household.id, categoryName, categoryEmoji);
       setHouseholdCategories((current) => editingCategory
         ? current.map((option) => option.id === saved.id ? saved : option)
         : [...current, saved]);
@@ -514,9 +526,13 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             </Pressable>
           ) : null}
         </View>
-        {!collapsed ? group.items.map((item) => (
-          <View key={item.id}>{renderItem({ item })}</View>
-        )) : null}
+        {!collapsed ? (
+          <View style={styles.categoryItems}>
+            {group.items.map((item) => (
+              <View key={item.id}>{renderItem({ item })}</View>
+            ))}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -546,9 +562,12 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
               {item.name}
             </Text>
-            <Text style={styles.itemMeta}>
-              {item.quantity} · {item.category}
-            </Text>
+            <View style={styles.itemMetaRow}>
+              <View style={styles.quantityBadge}>
+                <Text style={styles.quantityBadgeText}>{item.quantity} {item.quantity === '1' ? 'unidad' : 'unidades'}</Text>
+              </View>
+              <Text style={styles.itemMeta}>{item.is_completed ? 'Comprado' : 'Pendiente'}</Text>
+            </View>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
@@ -732,17 +751,17 @@ export function ListScreen({ household, onChangeHouse }: Props) {
           <View style={styles.categoryInfoCopy}>
             <MaterialCommunityIcons name="information-outline" size={17} color={COLORS.cyan} />
             <Text style={styles.categoryInfoText}>
-              Las categorías son exclusivas de esta casa. Tienes que crearlas a mano; pulsa el lápiz de una categoría para cambiarla o borrarla.
+              Las categorías son exclusivas de esta casa. Créala desde el gestor y usa sus botones para cambiar el nombre, el emoji o borrarla.
             </Text>
           </View>
           <Pressable
             style={styles.manageCategoriesButton}
-            onPress={openCreateCategory}
+            onPress={openCategoryManager}
             accessibilityRole="button"
-            accessibilityLabel="Crear una categoría para esta casa"
+            accessibilityLabel="Gestionar categorías de esta casa"
           >
-            <MaterialCommunityIcons name="plus" size={16} color={COLORS.lime} />
-            <Text style={styles.manageCategoriesText}>Crear categoría</Text>
+            <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
+            <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
           </Pressable>
         </View>
         {householdCategories.length ? (
@@ -772,6 +791,65 @@ export function ListScreen({ household, onChangeHouse }: Props) {
           <Text style={styles.noCategoriesText}>Aún no hay categorías. Crea la primera para poder añadir productos.</Text>
         )}
       </View>
+
+      <Modal
+        visible={categoryManagerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCategoryManagerVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.categoryManagerModal}>
+            <View style={styles.quantityModalHeader}>
+              <View>
+                <Text style={styles.quantityModalEyebrow}>ORGANIZAR CASA</Text>
+                <Text style={styles.quantityModalTitle}>Categorías</Text>
+              </View>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setCategoryManagerVisible(false)}
+                accessibilityLabel="Cerrar gestor de categorías"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            <Text style={styles.categoryManagerHint}>
+              Estas categorías solo existen en esta casa. Añade las que necesites y usa el lápiz para editar nombre o emoji.
+            </Text>
+            <ScrollView
+              style={styles.categoryManagerList}
+              contentContainerStyle={styles.categoryManagerListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {householdCategories.length ? householdCategories.map((option) => (
+                <View key={option.id} style={styles.categoryManagerRow}>
+                  <Text style={styles.categoryManagerEmoji}>{option.emoji}</Text>
+                  <Text style={styles.categoryManagerName} numberOfLines={1}>{option.name}</Text>
+                  <Pressable
+                    style={styles.categoryManagerEditButton}
+                    onPress={() => openEditCategory(option.name)}
+                    accessibilityLabel={`Editar ${option.name}`}
+                  >
+                    <MaterialCommunityIcons name="pencil-outline" size={17} color={COLORS.cyan} />
+                  </Pressable>
+                </View>
+              )) : (
+                <Text style={styles.noCategoriesText}>Todavía no has creado ninguna categoría.</Text>
+              )}
+            </ScrollView>
+            {categoryError ? <Text style={styles.categoryModalError}>{categoryError}</Text> : null}
+            <Pressable
+              style={styles.managerAddButton}
+              onPress={openCreateCategory}
+              accessibilityRole="button"
+              accessibilityLabel="Añadir categoría"
+            >
+              <MaterialCommunityIcons name="plus" size={18} color={COLORS.bg} />
+              <Text style={styles.managerAddText}>Añadir categoría</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={categoryModalVisible}
@@ -829,8 +907,31 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             ) : (
               <>
                 <Text style={styles.categoryModalHint}>
-                  Escribe tú mismo el nombre. Después podrás pulsar esta categoría para volver a editarla o borrarla.
+                  Escribe tú mismo el nombre y elige un emoji. Después podrás volver aquí para cambiar cualquiera de las dos cosas.
                 </Text>
+                <Text style={styles.editLabel}>EMOJI</Text>
+                <View style={styles.emojiPicker}>
+                  {CATEGORY_EMOJI_OPTIONS.map((option) => (
+                    <Pressable
+                      key={option}
+                      style={[styles.emojiOption, categoryEmoji === option && styles.emojiOptionActive]}
+                      onPress={() => setCategoryEmoji(option)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Usar emoji ${option}`}
+                    >
+                      <Text style={styles.emojiOptionText}>{option}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TextInput
+                  style={styles.emojiInput}
+                  value={categoryEmoji}
+                  onChangeText={setCategoryEmoji}
+                  maxLength={4}
+                  placeholder="O escribe otro emoji"
+                  placeholderTextColor={COLORS.mutedDeep}
+                  accessibilityLabel="Emoji de la categoría"
+                />
                 <Text style={styles.editLabel}>NOMBRE</Text>
                 <TextInput
                   style={styles.editInput}
@@ -1503,8 +1604,9 @@ const styles = StyleSheet.create({
   loader: { marginTop: 28 },
   list: { flex: 1, backgroundColor: COLORS.bg },
   listContent: { paddingBottom: 18, backgroundColor: COLORS.bg },
-  categorySection: { marginBottom: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 16, backgroundColor: COLORS.panel, overflow: 'hidden' },
-  categoryHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 67, padding: 9, borderBottomWidth: 1, borderBottomColor: COLORS.line },
+  categorySection: { marginBottom: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 18, backgroundColor: COLORS.panel, overflow: 'hidden' },
+  categoryHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 67, padding: 10, borderBottomWidth: 1, borderBottomColor: COLORS.line },
+  categoryItems: { backgroundColor: COLORS.panelDeep },
   categoryToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9, minWidth: 0, paddingVertical: 3 },
   categorySectionIcon: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 12, backgroundColor: '#143331' },
   categorySectionEmoji: { fontSize: 19 },
@@ -1517,12 +1619,12 @@ const styles = StyleSheet.create({
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: COLORS.panel,
-    borderWidth: 1,
-    borderColor: COLORS.line,
+    minHeight: 68,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.line,
   },
   itemCompleted: { opacity: 0.55 },
   checkbox: {
@@ -1537,13 +1639,16 @@ const styles = StyleSheet.create({
   },
   checkboxDone: { borderColor: COLORS.lime, backgroundColor: COLORS.lime },
   itemMain: { flex: 1, minWidth: 0 },
-  itemImageButton: { position: 'relative', width: 38, height: 38, marginRight: 9, borderRadius: 10 },
+  itemImageButton: { position: 'relative', width: 44, height: 44, marginRight: 10, borderRadius: 12 },
   itemImage: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#f4f6f1' },
   itemImageZoomBadge: { position: 'absolute', right: -3, bottom: -3, alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.lime },
   itemEmoji: { fontSize: 15 },
-  itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '700' },
+  itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
-  itemMeta: { marginTop: 4, color: COLORS.mutedDeep, fontSize: 11 },
+  itemMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 5 },
+  quantityBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: '#173a32' },
+  quantityBadgeText: { color: COLORS.limeDeep, fontSize: 10, fontWeight: '800' },
+  itemMeta: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '700' },
   editButton: { padding: 7 },
   deleteButton: { padding: 7 },
   deletePressed: { opacity: 0.5 },
@@ -1589,8 +1694,23 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.panel,
   },
   editModal: { width: '100%', maxWidth: 480, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  categoryManagerModal: { width: '100%', maxWidth: 440, maxHeight: '82%', padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  categoryManagerHint: { marginTop: 14, color: COLORS.muted, fontSize: 12, lineHeight: 18 },
+  categoryManagerList: { marginTop: 13 },
+  categoryManagerListContent: { gap: 7, paddingBottom: 3 },
+  categoryManagerRow: { flexDirection: 'row', alignItems: 'center', minHeight: 51, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.panelDeep },
+  categoryManagerEmoji: { width: 32, fontSize: 21, textAlign: 'center' },
+  categoryManagerName: { flex: 1, marginLeft: 9, color: COLORS.textSoft, fontSize: 14, fontWeight: '800' },
+  categoryManagerEditButton: { alignItems: 'center', justifyContent: 'center', width: 35, height: 35, borderRadius: 11, backgroundColor: '#143331' },
+  managerAddButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 49, marginTop: 14, borderRadius: 14, backgroundColor: COLORS.lime },
+  managerAddText: { color: COLORS.bg, fontSize: 14, fontWeight: '900' },
   categoryModal: { width: '100%', maxWidth: 440, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
   categoryModalHint: { marginTop: 16, color: COLORS.muted, fontSize: 12, lineHeight: 18 },
+  emojiPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  emojiOption: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, backgroundColor: COLORS.panelDeep },
+  emojiOptionActive: { borderColor: COLORS.lime, backgroundColor: '#183323' },
+  emojiOptionText: { fontSize: 21 },
+  emojiInput: { height: 42, marginTop: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 12, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 18 },
   categoryModalError: { marginTop: 11, color: COLORS.danger, fontSize: 12, lineHeight: 18 },
   categoryModalActions: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 20 },
   deleteCategoryOutlineButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, marginTop: 14, borderWidth: 1, borderColor: '#5a2b26', borderRadius: 13 },

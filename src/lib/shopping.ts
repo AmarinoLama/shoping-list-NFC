@@ -60,20 +60,21 @@ export async function getHouseholdCategories(householdId: string): Promise<House
   return (data ?? []) as HouseholdCategory[];
 }
 
-export async function createHouseholdCategory(householdId: string, name: string): Promise<HouseholdCategory> {
+export async function createHouseholdCategory(householdId: string, name: string, emoji: string): Promise<HouseholdCategory> {
   const { data, error } = await supabase
     .from('household_categories')
-    .insert({ household_id: householdId, name: name.trim(), emoji: '🏷️' })
+    .insert({ household_id: householdId, name: name.trim(), emoji: emoji.trim() || '🏷️' })
     .select()
     .single();
   if (error) throw error;
   return data as HouseholdCategory;
 }
 
-export async function updateHouseholdCategory(id: string, name: string): Promise<HouseholdCategory> {
+export async function updateHouseholdCategory(id: string, name: string, emoji: string): Promise<HouseholdCategory> {
   const { data, error } = await supabase.rpc('rename_household_category', {
     target_category_id: id,
     category_name: name.trim(),
+    category_emoji: emoji.trim() || '🏷️',
   });
   if (error) throw error;
   return data as HouseholdCategory;

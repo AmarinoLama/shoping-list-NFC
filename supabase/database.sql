@@ -174,9 +174,12 @@ $$;
 -- RPC API used by the app
 -- ---------------------------------------------------------------------------
 
+drop function if exists public.rename_household_category(uuid, text);
+
 create or replace function public.rename_household_category(
   target_category_id uuid,
-  category_name text
+  category_name text,
+  category_emoji text
 )
 returns public.household_categories
 language plpgsql
@@ -200,7 +203,8 @@ begin
   end if;
 
   update public.household_categories
-  set name = trim(category_name)
+  set name = trim(category_name),
+      emoji = coalesce(nullif(trim(category_emoji), ''), '🏷️')
   where id = target_category_id
   returning * into updated_category;
 
@@ -470,9 +474,9 @@ revoke all on public.household_members from anon, authenticated;
 revoke all on function public.is_household_member(uuid) from public;
 grant execute on function public.is_household_member(uuid) to authenticated;
 
-revoke all on function public.rename_household_category(uuid, text) from public;
+revoke all on function public.rename_household_category(uuid, text, text) from public;
 revoke all on function public.delete_household_category(uuid) from public;
-grant execute on function public.rename_household_category(uuid, text) to anon, authenticated;
+grant execute on function public.rename_household_category(uuid, text, text) to anon, authenticated;
 grant execute on function public.delete_household_category(uuid) to anon, authenticated;
 
 revoke all on function public.get_households() from public;
