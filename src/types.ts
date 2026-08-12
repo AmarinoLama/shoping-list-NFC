@@ -50,6 +50,7 @@ export type ShoppingItem = {
   household_id: string;
   name: string;
   quantity: string;
+  quantity_unit: string;
   category: string;
   image_url: string | null;
   is_completed: boolean;

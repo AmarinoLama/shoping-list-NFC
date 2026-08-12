@@ -78,6 +78,7 @@ create table if not exists public.shopping_items (
   household_id uuid not null references public.households(id) on delete cascade,
   name text not null check (char_length(trim(name)) between 1 and 120),
   quantity text not null default '1',
+  quantity_unit text not null default 'unidades',
   category text not null default 'Otros',
   image_url text,
   is_completed boolean not null default false,
@@ -137,6 +138,7 @@ alter table public.households alter column created_by drop not null;
 alter table public.households add column if not exists category_mode_enabled boolean not null default true;
 alter table public.shopping_items alter column created_by drop not null;
 alter table public.shopping_items add column if not exists image_url text;
+alter table public.shopping_items add column if not exists quantity_unit text not null default 'unidades';
 
 create index if not exists household_members_user_id_idx
   on public.household_members(user_id);

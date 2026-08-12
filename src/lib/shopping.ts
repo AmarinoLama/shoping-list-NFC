@@ -173,6 +173,7 @@ export async function addShoppingItem(input: {
   householdId: string;
   name: string;
   quantity: string;
+  quantityUnit: string;
   category: string;
   imageUrl?: string | null;
 }): Promise<ShoppingItem> {
@@ -182,6 +183,7 @@ export async function addShoppingItem(input: {
       household_id: input.householdId,
       name: input.name.trim(),
       quantity: input.quantity.trim() || '1',
+      quantity_unit: input.quantityUnit.trim() || 'unidades',
       category: input.category,
       image_url: input.imageUrl ?? null,
     })
@@ -195,6 +197,7 @@ export async function updateShoppingItem(input: {
   id: string;
   name: string;
   quantity: string;
+  quantityUnit: string;
   category: string;
   imageUrl?: string | null;
 }): Promise<ShoppingItem> {
@@ -203,6 +206,7 @@ export async function updateShoppingItem(input: {
     .update({
       name: input.name.trim(),
       quantity: input.quantity.trim() || '1',
+      quantity_unit: input.quantityUnit.trim() || 'unidades',
       category: input.category,
       image_url: input.imageUrl,
     })

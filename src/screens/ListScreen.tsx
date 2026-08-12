@@ -54,8 +54,26 @@ type CategoryGroup = {
 const CONFETTI_COLORS = [COLORS.lime, COLORS.cyan, COLORS.amber, COLORS.pink, COLORS.violet];
 const CONFETTI_EMOJI = ['⭐', '🛒', '🎉', '🧃'];
 const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index + 1));
+const QUANTITY_UNIT_OPTIONS = [
+  { value: 'unidades', label: 'Unidades' },
+  { value: 'g', label: 'Gramos' },
+  { value: 'kg', label: 'Kilos' },
+  { value: 'ml', label: 'Mililitros' },
+  { value: 'l', label: 'Litros' },
+  { value: 'paquetes', label: 'Paquetes' },
+  { value: 'cajas', label: 'Cajas' },
+  { value: 'botellas', label: 'Botellas' },
+  { value: 'latas', label: 'Latas' },
+  { value: 'sobres', label: 'Sobres' },
+] as const;
 const CATEGORY_EMOJI_OPTIONS = ['🏷️', '🍎', '🥕', '🥩', '🧀', '🥖', '❄️', '🥤', '🥫', '🍪', '🧴', '🧺', '🐾', '🍼', '🏠', '✨'];
 const QUANTITY_ITEM_HEIGHT = 48;
+
+function formatQuantity(quantity: string, unit?: string): string {
+  const value = quantity.trim() || '1';
+  const normalizedUnit = unit?.trim() || 'unidades';
+  return normalizedUnit === 'unidades' ? `x${value}` : `${value} ${normalizedUnit}`;
+}
 
 export function ListScreen({ household, onChangeHouse }: Props) {
   const { width } = useWindowDimensions();
@@ -63,6 +81,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const [quantityUnit, setQuantityUnit] = useState('unidades');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
@@ -73,6 +92,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editQuantity, setEditQuantity] = useState('1');
+  const [editQuantityUnit, setEditQuantityUnit] = useState('unidades');
   const [editCategory, setEditCategory] = useState('');
   const [quantityPickerTarget, setQuantityPickerTarget] = useState<'new' | 'edit' | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
@@ -207,6 +227,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     setEditingItem(item);
     setEditName(item.name);
     setEditQuantity(item.quantity || '1');
+    setEditQuantityUnit(item.quantity_unit || 'unidades');
     setEditCategory(item.category);
     setError(null);
   }
@@ -229,6 +250,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         id: editingItem.id,
         name: editName,
         quantity: editQuantity,
+        quantityUnit: editQuantityUnit,
         category: editCategory,
         imageUrl: editingItem.image_url,
       });
@@ -427,12 +449,14 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         householdId: household.id,
         name,
         quantity,
+        quantityUnit,
         category,
         imageUrl: selectedImageUrl,
       });
       setItems((current) => [created, ...current]);
       setName('');
       setQuantity('1');
+      setQuantityUnit('unidades');
       setSelectedImageUrl(null);
       try {
         await rememberProductCatalog({
@@ -609,7 +633,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 {item.name}
               </Text>
               <View style={styles.quantityBadge}>
-                <Text style={styles.quantityBadgeText}>{item.quantity}</Text>
+                <Text style={styles.quantityBadgeText}>{formatQuantity(item.quantity, item.quantity_unit)}</Text>
               </View>
             </View>
           </Pressable>
@@ -631,6 +655,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       </AnimatedRow>
     );
   }
+
+  const pickerQuantity = quantityPickerTarget === 'edit' ? editQuantity : quantity;
+  const pickerUnit = quantityPickerTarget === 'edit' ? editQuantityUnit : quantityUnit;
 
   const headerStyle = {
     opacity: headerIn,
@@ -717,9 +744,10 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`Cantidad: ${quantity}. Abrir selector`}
           >
-            <Text style={styles.quantityValue}>{quantity}</Text>
+            <Text style={styles.quantityValue}>{formatQuantity(quantity, quantityUnit)}</Text>
             <MaterialCommunityIcons name="chevron-down" size={16} color={COLORS.muted} />
-          </Pressable>            <Pressable
+          </Pressable>
+          <Pressable
               style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}
               onPress={() => void takeProductPhoto()}
               disabled={imageUploadBusy}
@@ -791,41 +819,65 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             </Pressable>
           </View>
         ) : null}
-        <Pressable
-          style={styles.manageCategoriesButton}
-          onPress={openCategoryManager}
-          accessibilityRole="button"
-          accessibilityLabel="Gestionar categorías de esta casa"
-        >
-          <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
-          <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
-        </Pressable>
         {categoryModeEnabled && householdCategories.some((option) => option.enabled) ? (
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryRow}
-            data={householdCategories.filter((option) => option.enabled)}
-            keyExtractor={(option) => option.id}
-            renderItem={({ item: option }) => {
-              const active = category === option.name;
-              const emoji = CATEGORY_META[option.name as ItemCategory]?.emoji ?? option.emoji;
-              return (
-                <Pressable
-                  style={[styles.categoryChip, active && styles.categoryChipActive]}
-                  onPress={() => setCategory(option.name)}
-                >
-                  <Text style={styles.categoryEmoji}>{emoji}</Text>
-                  <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
-                    {option.name}
-                  </Text>
-                </Pressable>
-              );
-            }}
-          />
+          <View style={styles.categoryToolbar}>
+            <Pressable
+              style={styles.manageCategoriesButton}
+              onPress={openCategoryManager}
+              accessibilityRole="button"
+              accessibilityLabel="Gestionar categorías de esta casa"
+            >
+              <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
+              <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
+            </Pressable>
+            <FlatList
+              style={styles.categoryList}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryRow}
+              data={householdCategories.filter((option) => option.enabled)}
+              keyExtractor={(option) => option.id}
+              renderItem={({ item: option }) => {
+                const active = category === option.name;
+                const emoji = CATEGORY_META[option.name as ItemCategory]?.emoji ?? option.emoji;
+                return (
+                  <Pressable
+                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    onPress={() => setCategory(option.name)}
+                  >
+                    <Text style={styles.categoryEmoji}>{emoji}</Text>
+                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
+                      {option.name}
+                    </Text>
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
         ) : categoryModeEnabled ? (
-          <Text style={styles.noCategoriesText}>Activa al menos una categoría para clasificar los productos.</Text>
-        ) : null}
+          <View style={styles.categoryToolbar}>
+            <Pressable
+              style={styles.manageCategoriesButton}
+              onPress={openCategoryManager}
+              accessibilityRole="button"
+              accessibilityLabel="Gestionar categorías de esta casa"
+            >
+              <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
+              <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
+            </Pressable>
+            <Text style={[styles.noCategoriesText, styles.noCategoriesInline]}>Crea una categoría para clasificar.</Text>
+          </View>
+        ) : (
+          <Pressable
+            style={styles.manageCategoriesButton}
+            onPress={openCategoryManager}
+            accessibilityRole="button"
+            accessibilityLabel="Gestionar categorías de esta casa"
+          >
+            <MaterialCommunityIcons name="format-list-bulleted" size={16} color={COLORS.lime} />
+            <Text style={styles.manageCategoriesText}>Gestionar categorías</Text>
+          </Pressable>
+        )}
       </View>
 
       <Modal
@@ -1082,7 +1134,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                   style={styles.editQuantityButton}
                   onPress={() => setQuantityPickerTarget('edit')}
                 >
-                  <Text style={styles.editQuantityText}>{editQuantity}</Text>
+                  <Text style={styles.editQuantityText}>{formatQuantity(editQuantity, editQuantityUnit)}</Text>
                   <MaterialCommunityIcons name="unfold-more-horizontal" size={17} color={COLORS.muted} />
                 </Pressable>
               </View>
@@ -1142,7 +1194,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             <View style={styles.quantityModalHeader}>
               <View>
                 <Text style={styles.quantityModalEyebrow}>CANTIDAD</Text>
-                <Text style={styles.quantityModalTitle}>¿Cuántas unidades?</Text>
+                <Text style={styles.quantityModalTitle}>Cantidad y unidad</Text>
               </View>
               <Pressable
                 style={styles.closeModalButton}
@@ -1158,7 +1210,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 contentContainerStyle={styles.wheelContent}
                 data={QUANTITY_OPTIONS}
                 keyExtractor={(value) => value}
-                initialScrollIndex={Math.max(0, Number(quantityPickerTarget === 'edit' ? editQuantity : quantity) - 1)}
+                initialScrollIndex={Math.max(0, Math.min(QUANTITY_OPTIONS.length - 1, Number(pickerQuantity) - 1))}
                 getItemLayout={(_, index) => ({
                   length: QUANTITY_ITEM_HEIGHT,
                   offset: QUANTITY_ITEM_HEIGHT * index,
@@ -1185,7 +1237,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                     accessibilityRole="button"
                     accessibilityLabel={`Seleccionar cantidad ${option}`}
                   >
-                    <Text style={[styles.wheelText, option === quantity && styles.wheelTextActive]}>
+                    <Text style={[styles.wheelText, option === pickerQuantity && styles.wheelTextActive]}>
                       {option}
                     </Text>
                   </Pressable>
@@ -1193,12 +1245,47 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               />
               <View pointerEvents="none" style={styles.wheelSelection} />
             </View>
+            <Text style={styles.quantityUnitLabel}>UNIDAD</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quantityUnitsRow}
+            >
+              {QUANTITY_UNIT_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.value}
+                  style={[styles.quantityUnitChip, pickerUnit === option.value && styles.quantityUnitChipActive]}
+                  onPress={() => {
+                    if (quantityPickerTarget === 'edit') setEditQuantityUnit(option.value);
+                    else setQuantityUnit(option.value);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Usar unidad ${option.label}`}
+                >
+                  <Text style={[styles.quantityUnitText, pickerUnit === option.value && styles.quantityUnitTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <TextInput
+              style={styles.quantityUnitInput}
+              value={pickerUnit === 'unidades' || QUANTITY_UNIT_OPTIONS.some((option) => option.value === pickerUnit) ? '' : pickerUnit}
+              onChangeText={(value) => {
+                if (quantityPickerTarget === 'edit') setEditQuantityUnit(value);
+                else setQuantityUnit(value);
+              }}
+              placeholder="Otra unidad (ej. porciones)"
+              placeholderTextColor={COLORS.mutedDeep}
+              maxLength={18}
+              accessibilityLabel="Escribir otra unidad"
+            />
             <Pressable
               style={({ pressed }) => [styles.confirmQuantityButton, pressed && styles.pressed]}
               onPress={() => setQuantityPickerTarget(null)}
             >
               <Text style={styles.confirmQuantityText}>
-                Usar {quantityPickerTarget === 'edit' ? editQuantity : quantity}
+                Usar {formatQuantity(pickerQuantity, pickerUnit)}
               </Text>
               <MaterialCommunityIcons name="check" size={19} color={COLORS.bg} />
             </Pressable>
@@ -1626,10 +1713,13 @@ const styles = StyleSheet.create({
   categoryInfoCard: { marginTop: 11, padding: 10, borderRadius: 13, backgroundColor: '#12302d', borderWidth: 1, borderColor: COLORS.line },
   categoryInfoCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
   categoryInfoText: { flex: 1, color: COLORS.muted, fontSize: 11, lineHeight: 16 },
-  manageCategoriesButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 9, paddingVertical: 5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: COLORS.panelDeep },
+  categoryToolbar: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0, marginTop: 9 },
+  categoryList: { flex: 1, minWidth: 0 },
+  manageCategoriesButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexShrink: 0, gap: 5, height: 32, paddingHorizontal: 7, borderRadius: 9, backgroundColor: COLORS.panelDeep },
   manageCategoriesText: { color: COLORS.lime, fontSize: 11, fontWeight: '800' },
   noCategoriesText: { paddingTop: 10, color: COLORS.mutedDeep, fontSize: 11, lineHeight: 16 },
-  categoryRow: { gap: 7, paddingTop: 11, paddingBottom: 2 },
+  noCategoriesInline: { flex: 1, paddingTop: 0 },
+  categoryRow: { alignItems: 'center', gap: 7, paddingVertical: 0 },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1813,6 +1903,13 @@ const styles = StyleSheet.create({
   wheelText: { color: COLORS.mutedDeep, fontSize: 22, fontWeight: '700' },
   wheelTextActive: { color: COLORS.lime, fontSize: 29, fontWeight: '900' },
   wheelSelection: { position: 'absolute', top: 96, left: 12, right: 12, height: QUANTITY_ITEM_HEIGHT, borderWidth: 1, borderColor: COLORS.lime, borderRadius: 12, backgroundColor: 'rgba(167,243,106,0.08)' },
+  quantityUnitLabel: { marginTop: 16, color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
+  quantityUnitsRow: { gap: 7, paddingVertical: 9 },
+  quantityUnitChip: { paddingHorizontal: 11, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, backgroundColor: COLORS.panelDeep },
+  quantityUnitChipActive: { borderColor: COLORS.lime, backgroundColor: '#183323' },
+  quantityUnitText: { color: COLORS.muted, fontSize: 11, fontWeight: '800' },
+  quantityUnitTextActive: { color: COLORS.lime },
+  quantityUnitInput: { height: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 12, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 13 },
   confirmQuantityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, marginTop: 16, borderRadius: 15, backgroundColor: COLORS.lime },
   confirmQuantityText: { color: COLORS.bg, fontSize: 15, fontWeight: '800' },
   confettiLayer: {
