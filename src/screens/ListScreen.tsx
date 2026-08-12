@@ -1818,7 +1818,7 @@ const styles = StyleSheet.create({
   itemImageButton: { position: 'relative', width: 44, height: 44, marginRight: 10, borderRadius: 12 },
   itemImage: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#f4f6f1' },
   itemImageZoomBadge: { position: 'absolute', right: -3, bottom: -3, alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.lime },
-  itemName: { flex: 1, color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
+  itemName: { flexShrink: 1, color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
   quantityBadge: { minWidth: 27, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8, backgroundColor: '#173a32' },
   quantityBadgeText: { color: COLORS.limeDeep, fontSize: 12, fontWeight: '900', textAlign: 'center' },
