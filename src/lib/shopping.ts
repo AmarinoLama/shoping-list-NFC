@@ -17,6 +17,22 @@ export async function createHousehold(name: string): Promise<Household> {
   return data as Household;
 }
 
+export async function updateHousehold(id: string, name: string): Promise<Household> {
+  const { data, error } = await supabase.rpc('update_household', {
+    target_household_id: id,
+    household_name: name.trim(),
+  });
+  if (error) throw error;
+  return data as Household;
+}
+
+export async function deleteHousehold(id: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_household', {
+    target_household_id: id,
+  });
+  if (error) throw error;
+}
+
 export async function joinHouseholdByNfcToken(token: string): Promise<Household> {
   const { data, error } = await supabase.rpc('join_household_by_nfc_token', {
     token: token.trim(),

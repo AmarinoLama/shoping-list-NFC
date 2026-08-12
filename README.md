@@ -18,7 +18,7 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 
 ## Flujo de acceso a una casa
 
-Al abrir la app, se muestran únicamente tus casas. Al seleccionar una casa o crear una nueva, aparece la autorización configurada en `EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD`; si no coincide, se muestra el error “Password incorrecta”. Tras una autorización correcta se guarda un permiso local en el dispositivo y no se vuelve a pedir la contraseña en ese dispositivo. Las etiquetas NFC generadas incluyen esa autorización en la ruta para abrir la casa automáticamente después de escanearla. Como las variables `EXPO_PUBLIC_*` y las URLs NFC son visibles en el cliente, esto es comodidad de acceso, no una medida de seguridad: para producción conviene mover la validación a una función segura del backend.
+Al entrar en el menú de casas se solicita la autorización configurada en `EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD`; si no coincide, se muestra el error “Password incorrecta”. Tras una autorización correcta se guarda un permiso local en el dispositivo y no se vuelve a pedir la contraseña para abrir, crear, editar, borrar o cambiar de casa. Las etiquetas NFC generadas incluyen esa autorización en la ruta para abrir la casa automáticamente después de escanearla. Como las variables `EXPO_PUBLIC_*` y las URLs NFC son visibles en el cliente, esto es comodidad de acceso, no una medida de seguridad: para producción conviene mover la validación a una función segura del backend.
 
 ## Configuración de Supabase
 
@@ -32,7 +32,8 @@ Al abrir la app, se muestran únicamente tus casas. Al seleccionar una casa o cr
 8. Ejecuta `supabase/migrations/202608120004_household_product_catalog.sql` para recordar productos e imágenes por casa.
 9. Ejecuta `supabase/migrations/202608120005_anonymous_house_flow.sql` para activar el flujo sin cuentas.
 10. Ejecuta `supabase/migrations/202608120006_anonymous_product_image_uploads.sql` para permitir fotos desde clientes anónimos y limitar las imágenes a JPEG pequeños.
-11. Comprueba que Realtime está habilitado para `public.shopping_items`.
+11. Ejecuta `supabase/migrations/202608120007_household_settings.sql` para activar renombrar y borrar casas desde configuración.
+12. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
 Las migraciones crean las tablas, índices, funciones seguras, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage para que la vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
 
