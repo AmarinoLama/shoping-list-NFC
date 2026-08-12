@@ -40,6 +40,12 @@ type Props = {
   onChangeHouse: () => void;
 };
 
+type CategoryGroup = {
+  category: string;
+  items: ShoppingItem[];
+  pendingCount: number;
+};
+
 const CONFETTI_COLORS = [COLORS.lime, COLORS.cyan, COLORS.amber, COLORS.pink, COLORS.violet];
 const CONFETTI_EMOJI = ['⭐', '🛒', '🎉', '🧃'];
 const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index + 1));
@@ -68,6 +74,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [imageCandidates, setImageCandidates] = useState<ProductImageCandidate[]>([]);
   const [imageSearchBusy, setImageSearchBusy] = useState(false);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const imageSearchRequest = useRef(0);
 
   const headerIn = useRef(new Animated.Value(0)).current;
@@ -103,6 +110,29 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       return matchesStatus && matchesSearch;
     });
   }, [items, search, showCompleted]);
+
+  const groupedItems = useMemo<CategoryGroup[]>(() => {
+    const groups = new Map<string, ShoppingItem[]>();
+    visibleItems.forEach((item) => {
+      const group = groups.get(item.category) ?? [];
+      group.push(item);
+      groups.set(item.category, group);
+    });
+
+    const orderedCategories = [
+      ...ITEM_CATEGORIES,
+      ...Array.from(groups.keys()).filter((category) => !(ITEM_CATEGORIES as readonly string[]).includes(category)),
+    ];
+    return orderedCategories.flatMap((category) => {
+      const categoryItems = groups.get(category);
+      if (!categoryItems?.length) return [];
+      return [{
+        category,
+        items: categoryItems,
+        pendingCount: categoryItems.filter((item) => !item.is_completed).length,
+      }];
+    });
+  }, [visibleItems]);
 
   const pendingCount = items.filter((item) => !item.is_completed).length;
   const completedCount = items.length - pendingCount;
@@ -343,6 +373,82 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function completeMany(targetItems: ShoppingItem[]): Promise<void> {
+    const pendingItems = targetItems.filter((item) => !item.is_completed);
+    if (!pendingItems.length || busy) return;
+    setBusy(true);
+    setError(null);
+    setCelebrate((value) => value + 1);
+    setItems((current) => current.map((item) =>
+      pendingItems.some((target) => target.id === item.id)
+        ? { ...item, is_completed: true, image_url: null }
+        : item,
+    ));
+    try {
+      await Promise.all(pendingItems.map(async (item) => {
+        await setItemCompleted(item.id, true);
+        if (item.image_url) await deleteProductImage(item.image_url);
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudieron marcar todos los productos.');
+      void refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleCategory(category: string): void {
+    setCollapsedCategories((current) => ({ ...current, [category]: !current[category] }));
+  }
+
+  function renderCategoryGroup({ item: group }: { item: CategoryGroup }) {
+    const meta = CATEGORY_META[group.category as ItemCategory] ?? CATEGORY_META.Otros;
+    const collapsed = Boolean(collapsedCategories[group.category]);
+    return (
+      <View style={styles.categorySection}>
+        <View style={styles.categoryHeader}>
+          <Pressable
+            style={styles.categoryToggle}
+            onPress={() => toggleCategory(group.category)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: !collapsed }}
+            accessibilityLabel={`${collapsed ? 'Abrir' : 'Cerrar'} categoría ${group.category}`}
+          >
+            <View style={styles.categorySectionIcon}>
+              <Text style={styles.categorySectionEmoji}>{meta.emoji}</Text>
+            </View>
+            <View style={styles.categorySectionCopy}>
+              <Text style={styles.categorySectionTitle}>{group.category}</Text>
+              <Text style={styles.categorySectionMeta}>
+                {group.pendingCount ? `${group.pendingCount} por comprar` : 'Todo comprado'} · {group.items.length} {group.items.length === 1 ? 'producto' : 'productos'}
+              </Text>
+            </View>
+            <MaterialCommunityIcons
+              name={collapsed ? 'chevron-down' : 'chevron-up'}
+              size={21}
+              color={COLORS.muted}
+            />
+          </Pressable>
+          {group.pendingCount ? (
+            <Pressable
+              style={styles.categorySelectButton}
+              onPress={() => void completeMany(group.items)}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={`Marcar todos los productos de ${group.category}`}
+            >
+              <MaterialCommunityIcons name="check-all" size={16} color={COLORS.lime} />
+              <Text style={styles.categorySelectText}>Todos</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {!collapsed ? group.items.map((item) => (
+          <View key={item.id}>{renderItem({ item })}</View>
+        )) : null}
+      </View>
+    );
   }
 
   function renderItem({ item }: { item: ShoppingItem }) {
@@ -767,6 +873,18 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         </View>
       </Modal>
 
+      {pendingCount ? (
+        <Pressable
+          style={({ pressed }) => [styles.selectAllButton, pressed && styles.pressed]}
+          onPress={() => void completeMany(items)}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Marcar todos los productos pendientes"
+        >
+          {busy ? <ActivityIndicator color={COLORS.bg} size="small" /> : <MaterialCommunityIcons name="check-all" size={19} color={COLORS.bg} />}
+          <Text style={styles.selectAllText}>Marcar todos ({pendingCount})</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.listToolbar}>
         <Pressable
           onPress={() => setShowCompleted((value) => !value)}
@@ -817,9 +935,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         <FlatList
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          data={visibleItems}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
+          data={groupedItems}
+          keyExtractor={(group) => group.category}
+          renderItem={renderCategoryGroup}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         />
@@ -1152,6 +1270,8 @@ const styles = StyleSheet.create({
   categoryEmoji: { fontSize: 14 },
   categoryText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   categoryTextActive: { color: COLORS.bg },
+  selectAllButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 46, marginTop: 12, borderRadius: 14, backgroundColor: COLORS.lime },
+  selectAllText: { color: COLORS.bg, fontSize: 13, fontWeight: '900' },
   listToolbar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1177,6 +1297,16 @@ const styles = StyleSheet.create({
   loader: { marginTop: 28 },
   list: { flex: 1, backgroundColor: COLORS.bg },
   listContent: { paddingBottom: 18, backgroundColor: COLORS.bg },
+  categorySection: { marginBottom: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 16, backgroundColor: COLORS.panel, overflow: 'hidden' },
+  categoryHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 67, padding: 9, borderBottomWidth: 1, borderBottomColor: COLORS.line },
+  categoryToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9, minWidth: 0, paddingVertical: 3 },
+  categorySectionIcon: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 12, backgroundColor: '#143331' },
+  categorySectionEmoji: { fontSize: 19 },
+  categorySectionCopy: { flex: 1, minWidth: 0 },
+  categorySectionTitle: { color: COLORS.textSoft, fontSize: 14, fontWeight: '900' },
+  categorySectionMeta: { marginTop: 3, color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  categorySelectButton: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 34, paddingHorizontal: 8, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 10, backgroundColor: COLORS.panelDeep },
+  categorySelectText: { color: COLORS.lime, fontSize: 10, fontWeight: '900' },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
