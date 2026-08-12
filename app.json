@@ -6,6 +6,22 @@
     "orientation": "portrait",
     "scheme": "lista-casa",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#071312"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite seleccionar una imagen para compartirla con tu casa.",
+          "cameraPermission": "Permite hacer una foto del producto.",
+          "microphonePermission": false
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smartview.listadecasa"

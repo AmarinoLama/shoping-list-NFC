@@ -3,42 +3,46 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   addShoppingItem,
   clearCompletedItems,
   deleteShoppingItem,
-  getNfcInviteUrl,
+  getHouseholdProduct,
   getShoppingItems,
-  isNfcBaseUrlConfigured,
+  rememberPurchasedProduct,
   setItemCompleted,
   subscribeToShoppingItems,
+  updateShoppingItem,
 } from '../lib/shopping';
+import { searchProductImages, uploadProductImage, type ProductImageCandidate } from '../lib/product-images';
 import { CATEGORY_META, COLORS } from '../lib/ui';
 import type { Household, ItemCategory, ShoppingItem } from '../types';
 import { ITEM_CATEGORIES } from '../types';
 
 type Props = {
   household: Household;
-  userId: string;
-  onSignOut: () => void;
+  onChangeHouse: () => void;
 };
 
 const CONFETTI_COLORS = [COLORS.lime, COLORS.cyan, COLORS.amber, COLORS.pink, COLORS.violet];
 const CONFETTI_EMOJI = ['⭐', '🛒', '🎉', '🧃'];
+const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index + 1));
+const QUANTITY_ITEM_HEIGHT = 48;
 
-export function ListScreen({ household, userId, onSignOut }: Props) {
+export function ListScreen({ household, onChangeHouse }: Props) {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
@@ -48,10 +52,20 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [celebrate, setCelebrate] = useState(0);
+  const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editQuantity, setEditQuantity] = useState('1');
+  const [editCategory, setEditCategory] = useState<ItemCategory>('Despensa');
+  const [quantityPickerTarget, setQuantityPickerTarget] = useState<'new' | 'edit' | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [imageCandidates, setImageCandidates] = useState<ProductImageCandidate[]>([]);
+  const [imageSearchBusy, setImageSearchBusy] = useState(false);
+  const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const imageSearchRequest = useRef(0);
 
   const headerIn = useRef(new Animated.Value(0)).current;
+  const progressMotion = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(headerIn, { toValue: 1, duration: 380, useNativeDriver: true }).start();
@@ -87,7 +101,124 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
   const pendingCount = items.filter((item) => !item.is_completed).length;
   const completedCount = items.length - pendingCount;
   const progress = items.length ? Math.round((completedCount / items.length) * 100) : 0;
-  const nfcUrl = getNfcInviteUrl(household.nfc_token);
+
+  useEffect(() => {
+    Animated.spring(progressMotion, {
+      toValue: progress,
+      friction: 8,
+      tension: 55,
+      useNativeDriver: false,
+    }).start();
+  }, [progress, progressMotion]);
+
+  useEffect(() => {
+    const requestId = ++imageSearchRequest.current;
+    const query = name.trim();
+    if (query.length < 3) {
+      setImageCandidates([]);
+      setImageSearchBusy(false);
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setImageSearchBusy(true);
+      void getHouseholdProduct(household.id, query)
+        .catch(() => null)
+        .then((savedProduct) => {
+          if (imageSearchRequest.current !== requestId) return null;
+          if (savedProduct?.image_url) {
+            setSelectedImageUrl(savedProduct.image_url);
+            setImageCandidates([
+              {
+                url: savedProduct.image_url,
+                productName: savedProduct.display_name,
+                source: 'saved',
+              },
+            ]);
+            return null;
+          }
+          return searchProductImages(query);
+        })
+        .then((results) => {
+          if (results && imageSearchRequest.current === requestId) setImageCandidates(results);
+        })
+        .finally(() => {
+          if (imageSearchRequest.current === requestId) setImageSearchBusy(false);
+        });
+    }, 700);
+    return () => clearTimeout(timeout);
+  }, [name, household.id]);
+
+  function startEditing(item: ShoppingItem): void {
+    setEditingItem(item);
+    setEditName(item.name);
+    setEditQuantity(item.quantity || '1');
+    setEditCategory((ITEM_CATEGORIES as readonly string[]).includes(item.category) ? item.category as ItemCategory : 'Otros');
+    setError(null);
+  }
+
+  function cancelEditing(): void {
+    setEditingItem(null);
+    setEditName('');
+    setError(null);
+  }
+
+  async function saveEdit(): Promise<void> {
+    if (!editingItem || !editName.trim()) {
+      setError('Escribe un nombre para el producto.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateShoppingItem({
+        id: editingItem.id,
+        name: editName,
+        quantity: editQuantity,
+        category: editCategory,
+        imageUrl: editingItem.image_url,
+      });
+      setItems((current) => current.map((item) => item.id === updated.id ? updated : item));
+      cancelEditing();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudo editar el producto.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function changeProductName(value: string): void {
+    setName(value);
+    setSelectedImageUrl(null);
+  }
+
+  async function takeProductPhoto(): Promise<void> {
+    setImageUploadBusy(true);
+    setError(null);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setError('Necesitamos permiso de cámara para hacer una foto.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled) {
+        setSelectedImageUrl(await uploadProductImage({
+          householdId: household.id,
+          uri: result.assets[0].uri,
+          contentType: result.assets[0].mimeType,
+        }));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudo guardar la foto del producto.');
+    } finally {
+      setImageUploadBusy(false);
+    }
+  }
 
   async function addItem(): Promise<void> {
     if (!name.trim()) return;
@@ -96,14 +227,26 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
     try {
       const created = await addShoppingItem({
         householdId: household.id,
-        userId,
         name,
         quantity,
         category,
+        imageUrl: selectedImageUrl,
       });
       setItems((current) => [created, ...current]);
       setName('');
       setQuantity('1');
+      setSelectedImageUrl(null);
+      setImageCandidates([]);
+      try {
+        await rememberPurchasedProduct({
+          householdId: household.id,
+          name,
+          category,
+          imageUrl: selectedImageUrl,
+        });
+      } catch {
+        // The catalog is an enhancement; an unapplied migration must not block purchases.
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo añadir el producto.');
     } finally {
@@ -150,20 +293,6 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
     }
   }
 
-  async function copyNfcLink(): Promise<void> {
-    await Clipboard.setStringAsync(nfcUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  }
-
-  async function shareNfcLink(): Promise<void> {
-    await Share.share({
-      title: `Invitación a ${household.name}`,
-      message: `Únete a la lista de ${household.name}: ${nfcUrl}`,
-      url: nfcUrl,
-    });
-  }
-
   function renderItem({ item }: { item: ShoppingItem }) {
     const meta = CATEGORY_META[item.category as ItemCategory] ?? CATEGORY_META.Otros;
     return (
@@ -172,7 +301,11 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
           <FunCheckbox checked={item.is_completed} onPress={() => void toggleItem(item)} />
           <Pressable style={styles.itemMain} onPress={() => void toggleItem(item)}>
             <View style={styles.itemNameRow}>
-              <Text style={styles.itemEmoji}>{meta.emoji}</Text>
+              {item.image_url ? (
+                <Image source={{ uri: item.image_url }} style={styles.itemImage} />
+              ) : (
+                <Text style={styles.itemEmoji}>{meta.emoji}</Text>
+              )}
               <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
                 {item.name}
               </Text>
@@ -180,6 +313,13 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
             <Text style={styles.itemMeta}>
               {item.quantity} · {item.category}
             </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+            onPress={() => startEditing(item)}
+            accessibilityLabel={`Editar ${item.name}`}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={COLORS.cyan} />
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.deleteButton, pressed && styles.deletePressed]}
@@ -208,8 +348,10 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <StatusBar style="light" />
+      <AmbientGroceries />
       <ConfettiBurst trigger={celebrate} />
 
+      <View style={styles.content}>
       <Animated.View style={[styles.header, headerStyle]}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>LISTA COMPARTIDA</Text>
@@ -226,77 +368,66 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
             ) : null}
           </View>
         </View>
-        <Pressable
-          style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}
-          onPress={onSignOut}
-          accessibilityLabel="Cerrar sesión"
-        >
-          <MaterialCommunityIcons name="logout-variant" size={20} color={COLORS.limeDeep} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            style={({ pressed }) => [styles.backHouseButton, pressed && styles.pressed]}
+            onPress={onChangeHouse}
+            accessibilityLabel="Volver al menú de casas"
+          >
+            <MaterialCommunityIcons name="arrow-left" size={18} color={COLORS.cyan} />
+            <Text style={styles.backHouseText}>Casas</Text>
+          </Pressable>
+
+        </View>
       </Animated.View>
 
       {items.length > 0 ? (
         <View style={styles.progressRow}>
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  width: progressMotion.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
           </View>
           <Text style={styles.progressText}>{progress}%</Text>
         </View>
       ) : null}
-
-      <View style={styles.nfcCard}>
-        <View style={styles.nfcIcon}>
-          <MaterialCommunityIcons name="nfc-variant" size={20} color={COLORS.cyan} />
-        </View>
-        <View style={styles.nfcCopy}>
-          <Text style={styles.nfcTitle}>Etiqueta NFC de casa</Text>
-          <Text style={styles.nfcSubtitle}>
-            {isNfcBaseUrlConfigured
-              ? 'Comparte este enlace y escríbelo en una etiqueta NFC.'
-              : 'Usando la URL actual de la app. Configura EXPO_PUBLIC_NFC_BASE_URL para un dominio estable.'}
-          </Text>
-        </View>
-        <Pressable onPress={() => void shareNfcLink()} hitSlop={8} style={styles.shareActionRow}>
-          <MaterialCommunityIcons name="share-variant" size={14} color={COLORS.lime} />
-          <Text style={styles.shareAction}>Compartir</Text>
-        </Pressable>
-      </View>
-      <View style={styles.nfcActions}>
-        <Text numberOfLines={1} style={styles.nfcUrl}>
-          {nfcUrl}
-        </Text>
-        <Pressable
-          onPress={() => void copyNfcLink()}
-          style={({ pressed }) => [styles.copyButton, pressed && styles.pressed]}
-        >
-          <MaterialCommunityIcons
-            name={copied ? 'check-circle' : 'content-copy'}
-            size={15}
-            color={copied ? COLORS.lime : COLORS.muted}
-          />
-          <Text style={[styles.copyText, copied && styles.copyTextDone]}>
-            {copied ? 'Copiado' : 'Copiar'}
-          </Text>
-        </Pressable>
-      </View>
 
       <View style={styles.addCard}>
         <View style={styles.addRow}>
           <TextInput
             style={styles.itemInput}
             value={name}
-            onChangeText={setName}
+            onChangeText={changeProductName}
             onSubmitEditing={() => void addItem()}
             returnKeyType="done"
             placeholder="Añadir producto…"
             placeholderTextColor={COLORS.mutedDeep}
           />
-          <TextInput
-            style={styles.quantityInput}
-            value={quantity}
-            onChangeText={setQuantity}
-            keyboardType="numeric"
-          />
+          <Pressable
+            style={({ pressed }) => [styles.quantityPickerButton, pressed && styles.pressed]}
+            onPress={() => setQuantityPickerTarget('new')}
+            accessibilityRole="button"
+            accessibilityLabel={`Cantidad: ${quantity}. Abrir selector`}
+          >
+            <Text style={styles.quantityValue}>{quantity}</Text>
+            <MaterialCommunityIcons name="chevron-down" size={16} color={COLORS.muted} />
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}
+            onPress={() => void takeProductPhoto()}
+            disabled={imageUploadBusy}
+            accessibilityLabel="Hacer foto del producto"
+          >
+            {imageUploadBusy ? <ActivityIndicator color={COLORS.cyan} size="small" /> : <MaterialCommunityIcons name="camera-outline" size={21} color={COLORS.cyan} />}
+          </Pressable>
           <Pressable
             style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
             onPress={() => void addItem()}
@@ -310,6 +441,47 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
             )}
           </Pressable>
         </View>
+        {imageSearchBusy ? (
+          <View style={styles.imageSearchStatus}>
+            <ActivityIndicator color={COLORS.cyan} size="small" />
+            <Text style={styles.imageSearchText}>Buscando imágenes de {name.trim()}…</Text>
+          </View>
+        ) : null}
+        {imageCandidates.length ? (
+          <FlatList
+            horizontal
+            data={imageCandidates}
+            keyExtractor={(candidate) => candidate.url}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.imageCandidates}
+            renderItem={({ item: candidate }) => (
+              <Pressable
+                style={[styles.imageCandidate, selectedImageUrl === candidate.url && styles.imageCandidateSelected]}
+                onPress={() => setSelectedImageUrl(candidate.url)}
+                accessibilityLabel={`Usar imagen de ${candidate.productName}`}
+              >
+                <Image source={{ uri: candidate.url }} style={styles.candidateImage} />
+                {selectedImageUrl === candidate.url ? (
+                  <View style={styles.imageSelectedBadge}>
+                    <MaterialCommunityIcons name="check" size={13} color={COLORS.bg} />
+                  </View>
+                ) : null}
+                <Text numberOfLines={1} style={styles.candidateLabel}>
+                  {candidate.source === 'transparent' ? 'Sin fondo' : candidate.source === 'saved' ? 'Guardada' : candidate.productName}
+                </Text>
+              </Pressable>
+            )}
+          />
+        ) : null}
+        {selectedImageUrl ? (
+          <View style={styles.selectedImageRow}>
+            <MaterialCommunityIcons name="image-check-outline" size={15} color={COLORS.lime} />
+            <Text style={styles.selectedImageText}>Imagen seleccionada para este producto</Text>
+            <Pressable onPress={() => setSelectedImageUrl(null)} hitSlop={8} accessibilityLabel="Quitar imagen">
+              <MaterialCommunityIcons name="close-circle-outline" size={16} color={COLORS.muted} />
+            </Pressable>
+          </View>
+        ) : null}
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -332,6 +504,165 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
           }}
         />
       </View>
+
+      <Modal
+        visible={editingItem !== null && quantityPickerTarget !== 'edit'}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelEditing}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.editModal}>
+            <View style={styles.quantityModalHeader}>
+              <View>
+                <Text style={styles.quantityModalEyebrow}>EDITAR PRODUCTO</Text>
+                <Text style={styles.quantityModalTitle}>Corrige tu alimento</Text>
+              </View>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={cancelEditing}
+                accessibilityLabel="Cerrar edición"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            <Text style={styles.editLabel}>NOMBRE</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editName}
+              onChangeText={setEditName}
+              autoFocus
+              placeholder="Nombre del alimento"
+              placeholderTextColor={COLORS.mutedDeep}
+            />
+            <View style={styles.editControlsRow}>
+              <View style={styles.editControl}>
+                <Text style={styles.editLabel}>CANTIDAD</Text>
+                <Pressable
+                  style={styles.editQuantityButton}
+                  onPress={() => setQuantityPickerTarget('edit')}
+                >
+                  <Text style={styles.editQuantityText}>{editQuantity}</Text>
+                  <MaterialCommunityIcons name="unfold-more-horizontal" size={17} color={COLORS.muted} />
+                </Pressable>
+              </View>
+            </View>
+            <Text style={styles.editLabel}>CATEGORÍA</Text>
+            <FlatList
+              horizontal
+              data={ITEM_CATEGORIES}
+              keyExtractor={(value) => value}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.editCategories}
+              renderItem={({ item: option }) => {
+                const active = editCategory === option;
+                return (
+                  <Pressable
+                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    onPress={() => setEditCategory(option)}
+                  >
+                    <Text style={styles.categoryEmoji}>{CATEGORY_META[option].emoji}</Text>
+                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              }}
+            />
+            {error && editingItem ? <Text style={styles.editError}>{error}</Text> : null}
+            <View style={styles.editActions}>
+              <Pressable style={styles.cancelEditButton} onPress={cancelEditing} disabled={busy}>
+                <Text style={styles.cancelEditText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.saveEditButton, pressed && styles.pressed]}
+                onPress={() => void saveEdit()}
+                disabled={busy}
+              >
+                {busy ? <ActivityIndicator color={COLORS.bg} size="small" /> : <>
+                  <Text style={styles.confirmQuantityText}>Guardar</Text>
+                  <MaterialCommunityIcons name="check" size={18} color={COLORS.bg} />
+                </>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={quantityPickerTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuantityPickerTarget(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.quantityModal}>
+            <View style={styles.quantityModalHeader}>
+              <View>
+                <Text style={styles.quantityModalEyebrow}>CANTIDAD</Text>
+                <Text style={styles.quantityModalTitle}>¿Cuántas unidades?</Text>
+              </View>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setQuantityPickerTarget(null)}
+                accessibilityLabel="Cerrar selector de cantidad"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            <View style={styles.wheelFrame}>
+              <FlatList
+                style={styles.wheelList}
+                contentContainerStyle={styles.wheelContent}
+                data={QUANTITY_OPTIONS}
+                keyExtractor={(value) => value}
+                initialScrollIndex={Math.max(0, Number(quantityPickerTarget === 'edit' ? editQuantity : quantity) - 1)}
+                getItemLayout={(_, index) => ({
+                  length: QUANTITY_ITEM_HEIGHT,
+                  offset: QUANTITY_ITEM_HEIGHT * index,
+                  index,
+                })}
+                snapToInterval={QUANTITY_ITEM_HEIGHT}
+                decelerationRate="fast"
+                showsVerticalScrollIndicator={false}
+                onMomentumScrollEnd={({ nativeEvent }) => {
+                  const index = Math.min(
+                    QUANTITY_OPTIONS.length - 1,
+                    Math.max(0, Math.round(nativeEvent.contentOffset.y / QUANTITY_ITEM_HEIGHT)),
+                  );
+                  if (quantityPickerTarget === 'edit') setEditQuantity(QUANTITY_OPTIONS[index]);
+                  else setQuantity(QUANTITY_OPTIONS[index]);
+                }}
+                renderItem={({ item: option }) => (
+                  <Pressable
+                    style={styles.wheelItem}
+                    onPress={() => {
+                      if (quantityPickerTarget === 'edit') setEditQuantity(option);
+                      else setQuantity(option);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seleccionar cantidad ${option}`}
+                  >
+                    <Text style={[styles.wheelText, option === quantity && styles.wheelTextActive]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+              <View pointerEvents="none" style={styles.wheelSelection} />
+            </View>
+            <Pressable
+              style={({ pressed }) => [styles.confirmQuantityButton, pressed && styles.pressed]}
+              onPress={() => setQuantityPickerTarget(null)}
+            >
+              <Text style={styles.confirmQuantityText}>
+                Usar {quantityPickerTarget === 'edit' ? editQuantity : quantity}
+              </Text>
+              <MaterialCommunityIcons name="check" size={19} color={COLORS.bg} />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.listToolbar}>
         <Pressable
@@ -400,7 +731,42 @@ export function ListScreen({ household, userId, onSignOut }: Props) {
           placeholderTextColor={COLORS.mutedDeep}
         />
       </View>
+      </View>
     </KeyboardAvoidingView>
+  );
+}
+
+/** Pequeños elementos flotantes para que la pantalla respire y se sienta más viva. */
+function AmbientGroceries() {
+  const first = useRef(new Animated.Value(0)).current;
+  const second = useRef(new Animated.Value(0)).current;
+  const third = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const makeLoop = (value: Animated.Value, duration: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(value, { toValue: 1, duration, useNativeDriver: true }),
+          Animated.timing(value, { toValue: 0, duration, useNativeDriver: true }),
+        ]),
+      );
+    const loops = [makeLoop(first, 2600), makeLoop(second, 3200), makeLoop(third, 2900)];
+    loops.forEach((loop) => loop.start());
+    return () => loops.forEach((loop) => loop.stop());
+  }, [first, second, third]);
+
+  return (
+    <View pointerEvents="none" style={styles.ambientLayer}>
+      <Animated.View style={[styles.ambientItem, styles.ambientOne, { transform: [{ translateY: first.interpolate({ inputRange: [0, 1], outputRange: [0, -16] }) }, { rotate: '-12deg' }] }]}>
+        <Text style={styles.ambientEmoji}>🥕</Text>
+      </Animated.View>
+      <Animated.View style={[styles.ambientItem, styles.ambientTwo, { transform: [{ translateY: second.interpolate({ inputRange: [0, 1], outputRange: [0, 18] }) }, { rotate: '14deg' }] }]}>
+        <Text style={styles.ambientEmoji}>🧃</Text>
+      </Animated.View>
+      <Animated.View style={[styles.ambientItem, styles.ambientThree, { transform: [{ translateY: third.interpolate({ inputRange: [0, 1], outputRange: [0, -13] }) }, { rotate: '-8deg' }] }]}>
+        <Text style={styles.ambientEmoji}>🍎</Text>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -550,7 +916,14 @@ function ConfettiBurst({ trigger }: { trigger: number }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: COLORS.bg, paddingHorizontal: 20 },
+  screen: { flex: 1, alignItems: 'center', backgroundColor: COLORS.bg, paddingHorizontal: 16 },
+  ambientLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 },
+  ambientItem: { position: 'absolute', opacity: 0.14 },
+  ambientEmoji: { fontSize: 30 },
+  ambientOne: { top: 138, right: 10 },
+  ambientTwo: { top: 330, left: 7 },
+  ambientThree: { bottom: 125, right: 20 },
+  content: { flex: 1, width: '100%', maxWidth: 760, zIndex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -564,6 +937,9 @@ const styles = StyleSheet.create({
   countRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   count: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
   countDone: { color: COLORS.mutedDeep, fontSize: 13 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  backHouseButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 42, paddingHorizontal: 10, borderRadius: 14, backgroundColor: COLORS.panel, borderWidth: 1, borderColor: COLORS.line },
+  backHouseText: { color: COLORS.cyan, fontSize: 12, fontWeight: '800' },
   avatar: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -585,40 +961,6 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: '100%', borderRadius: 4, backgroundColor: COLORS.lime },
   progressText: { color: COLORS.lime, fontSize: 11, fontWeight: '800', width: 34, textAlign: 'right' },
-  nfcCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 13,
-    borderWidth: 1,
-    borderColor: '#2a5142',
-    borderRadius: 17,
-    backgroundColor: COLORS.panel,
-  },
-  nfcIcon: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    backgroundColor: '#143331',
-  },
-  nfcCopy: { flex: 1 },
-  nfcTitle: { color: COLORS.textSoft, fontSize: 13, fontWeight: '800' },
-  nfcSubtitle: { marginTop: 2, color: COLORS.muted, fontSize: 11, lineHeight: 15 },
-  shareActionRow: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
-  shareAction: { color: COLORS.lime, fontSize: 12, fontWeight: '800' },
-  nfcActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-    paddingHorizontal: 4,
-  },
-  nfcUrl: { flex: 1, color: COLORS.mutedDeep, fontSize: 10 },
-  copyButton: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
-  copyText: { color: COLORS.muted, fontSize: 11, fontWeight: '800' },
-  copyTextDone: { color: COLORS.lime },
   addCard: { marginTop: 16, padding: 12, borderRadius: 18, backgroundColor: COLORS.panel },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   itemInput: {
@@ -631,16 +973,20 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 15,
   },
-  quantityInput: {
-    width: 45,
+  quantityPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    width: 68,
     height: 46,
-    textAlign: 'center',
     borderWidth: 1,
     borderColor: COLORS.lineSoft,
     borderRadius: 13,
-    color: COLORS.text,
-    fontSize: 15,
+    backgroundColor: COLORS.panelDeep,
   },
+  quantityValue: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
+  cameraButton: { alignItems: 'center', justifyContent: 'center', width: 46, height: 46, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 13, backgroundColor: COLORS.panelDeep },
   addButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -650,6 +996,16 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lime,
   },
   addButtonPressed: { opacity: 0.8, transform: [{ scale: 0.94 }] },
+  imageSearchStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 10, paddingHorizontal: 2 },
+  imageSearchText: { color: COLORS.muted, fontSize: 11 },
+  imageCandidates: { gap: 8, paddingTop: 10, paddingBottom: 2 },
+  imageCandidate: { position: 'relative', width: 74, paddingBottom: 3, borderWidth: 1, borderColor: COLORS.line, borderRadius: 12, backgroundColor: COLORS.panelDeep, overflow: 'hidden' },
+  imageCandidateSelected: { borderColor: COLORS.lime, backgroundColor: '#183323' },
+  candidateImage: { width: '100%', height: 58, backgroundColor: '#f4f6f1' },
+  candidateLabel: { paddingHorizontal: 5, paddingTop: 4, color: COLORS.muted, fontSize: 9 },
+  imageSelectedBadge: { position: 'absolute', top: 5, right: 5, alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.lime },
+  selectedImageRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 9, paddingHorizontal: 2 },
+  selectedImageText: { flex: 1, color: COLORS.limeDeep, fontSize: 11, fontWeight: '700' },
   categoryRow: { gap: 7, paddingTop: 11, paddingBottom: 2 },
   categoryChip: {
     flexDirection: 'row',
@@ -715,10 +1071,12 @@ const styles = StyleSheet.create({
   checkboxDone: { borderColor: COLORS.lime, backgroundColor: COLORS.lime },
   itemMain: { flex: 1 },
   itemNameRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  itemImage: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#f4f6f1' },
   itemEmoji: { fontSize: 15 },
   itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '700' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
   itemMeta: { marginTop: 4, color: COLORS.mutedDeep, fontSize: 11 },
+  editButton: { padding: 7 },
   deleteButton: { padding: 7 },
   deletePressed: { opacity: 0.5 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 48 },
@@ -738,6 +1096,48 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.panelDeep,
   },
   searchInput: { flex: 1, color: COLORS.text, fontSize: 14 },
+  modalBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  quantityModal: {
+    width: '100%',
+    maxWidth: 390,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: COLORS.lineSoft,
+    borderRadius: 24,
+    backgroundColor: COLORS.panel,
+  },
+  editModal: { width: '100%', maxWidth: 480, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  editLabel: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 17, marginBottom: 8 },
+  editInput: { height: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 16 },
+  editControlsRow: { flexDirection: 'row' },
+  editControl: { flex: 1 },
+  editQuantityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14, backgroundColor: COLORS.panelDeep },
+  editQuantityText: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
+  editCategories: { gap: 7, paddingBottom: 2 },
+  editError: { marginTop: 12, color: COLORS.danger, fontSize: 13, lineHeight: 18 },
+  editActions: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 22 },
+  cancelEditButton: { alignItems: 'center', justifyContent: 'center', height: 50, paddingHorizontal: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14 },
+  cancelEditText: { color: COLORS.muted, fontSize: 14, fontWeight: '800' },
+  saveEditButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 50, borderRadius: 14, backgroundColor: COLORS.lime },
+  quantityModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  quantityModalEyebrow: { color: COLORS.lime, fontSize: 10, fontWeight: '800', letterSpacing: 1.7 },
+  quantityModalTitle: { marginTop: 5, color: COLORS.text, fontSize: 21, fontWeight: '800' },
+  closeModalButton: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 13, backgroundColor: COLORS.panelDeep },
+  wheelFrame: { height: 240, marginTop: 18, overflow: 'hidden', borderRadius: 16, backgroundColor: COLORS.panelDeep },
+  wheelList: { flex: 1 },
+  wheelContent: { paddingVertical: 96 },
+  wheelItem: { alignItems: 'center', justifyContent: 'center', height: QUANTITY_ITEM_HEIGHT },
+  wheelText: { color: COLORS.mutedDeep, fontSize: 22, fontWeight: '700' },
+  wheelTextActive: { color: COLORS.lime, fontSize: 29, fontWeight: '900' },
+  wheelSelection: { position: 'absolute', top: 96, left: 12, right: 12, height: QUANTITY_ITEM_HEIGHT, borderWidth: 1, borderColor: COLORS.lime, borderRadius: 12, backgroundColor: 'rgba(167,243,106,0.08)' },
+  confirmQuantityButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, marginTop: 16, borderRadius: 15, backgroundColor: COLORS.lime },
+  confirmQuantityText: { color: COLORS.bg, fontSize: 15, fontWeight: '800' },
   confettiLayer: {
     position: 'absolute',
     top: 0,

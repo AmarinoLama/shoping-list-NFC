@@ -19,6 +19,7 @@ export function SetupScreen() {
         <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY=...</Text>
         <Text style={styles.code}>EXPO_PUBLIC_NFC_BASE_URL=https://tu-dominio.com/join</Text>
         <Text style={styles.code}>EXPO_PUBLIC_NFC_DOMAIN=tu-dominio.com</Text>
+        <Text style={styles.code}>EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD=fornelosdemontes</Text>
       </View>
       <Text style={styles.hint}>
         Después aplica la migración SQL incluida en supabase/migrations.
@@ -28,7 +29,7 @@ export function SetupScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center', padding: 28, backgroundColor: '#071312' },
+  screen: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', justifyContent: 'center', padding: 28, backgroundColor: '#071312' },
   icon: {
     alignItems: 'center',
     justifyContent: 'center',

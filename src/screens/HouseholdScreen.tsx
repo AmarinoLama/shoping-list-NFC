@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
 import {
   ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Share,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,34 +15,161 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { createHousehold, joinHouseholdByNfcToken } from '../lib/shopping';
+import { AccessScreen } from './AccessScreen';
+import {
+  hasStoredHouseholdAuthorization,
+  HOUSEHOLD_AUTHORIZATION_PASSWORD,
+  rememberHouseholdAuthorization,
+} from '../lib/authorization';
+import {
+  createHousehold,
+  getMyHouseholds,
+  getNfcInviteUrl,
+  isNfcBaseUrlConfigured,
+  joinHouseholdByNfcToken,
+  parseNfcInvite,
+  type NfcInvite,
+} from '../lib/shopping';
 import { COLORS } from '../lib/ui';
 import type { Household } from '../types';
 
 type Props = {
-  pendingNfcToken: string | null;
+  pendingNfcInvite: NfcInvite | null;
   onHouseholdReady: (household: Household) => void;
 };
 
-export function HouseholdScreen({ pendingNfcToken, onHouseholdReady }: Props) {
-  const [name, setName] = useState('Casa');
-  const [token, setToken] = useState(pendingNfcToken ?? '');
+type AccessAction =
+  | { type: 'open'; household: Household }
+  | { type: 'create' }
+  | { type: 'join'; token: string };
+
+export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
+  const [households, setHouseholds] = useState<Household[]>([]);
+  const [token, setToken] = useState(pendingNfcInvite?.token ?? '');
+  const [name, setName] = useState('');
+  const [accessAction, setAccessAction] = useState<AccessAction | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [copiedHouseholdId, setCopiedHouseholdId] = useState<string | null>(null);
+  const [authorizationGranted, setAuthorizationGranted] = useState<boolean | null>(null);
   const entrance = useRef(new Animated.Value(0)).current;
+  const autoJoinAttempted = useRef(false);
 
   useEffect(() => {
-    setToken(pendingNfcToken ?? '');
-  }, [pendingNfcToken]);
+    setToken(pendingNfcInvite?.token ?? '');
+  }, [pendingNfcInvite]);
+
+  useEffect(() => {
+    let mounted = true;
+    void hasStoredHouseholdAuthorization().then((stored) => {
+      if (mounted) setAuthorizationGranted(stored);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     Animated.timing(entrance, { toValue: 1, duration: 420, useNativeDriver: true }).start();
+    void loadHouseholds();
   }, [entrance]);
+
+  useEffect(() => {
+    if (!pendingNfcInvite || authorizationGranted === null || autoJoinAttempted.current) return;
+    const linkAuthorized = pendingNfcInvite.authorizationPassword === HOUSEHOLD_AUTHORIZATION_PASSWORD;
+    if (!authorizationGranted && !linkAuthorized) {
+      autoJoinAttempted.current = true;
+      setError('La autorización de la etiqueta no es válida.');
+      return;
+    }
+    autoJoinAttempted.current = true;
+    setBusy(true);
+    void rememberHouseholdAuthorization()
+      .then(() => joinHouseholdByNfcToken(pendingNfcInvite.token))
+      .then(onHouseholdReady)
+      .catch((caught: unknown) => {
+        setError(caught instanceof Error ? caught.message : 'No se pudo abrir la casa desde la etiqueta.');
+      })
+      .finally(() => setBusy(false));
+  }, [pendingNfcInvite, authorizationGranted, onHouseholdReady]);
+
+  async function loadHouseholds(): Promise<void> {
+    setLoading(true);
+    try {
+      setHouseholds(await getMyHouseholds());
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No se pudieron cargar tus casas.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function requestAccess(action: AccessAction): Promise<void> {
+    setError(null);
+    const authorized = authorizationGranted ?? (await hasStoredHouseholdAuthorization());
+    setAuthorizationGranted(authorized);
+    if (authorized) void continueAfterAuthorization(action);
+    else setAccessAction(action);
+  }
+
+  function requestCreate(): void {
+    void requestAccess({ type: 'create' });
+  }
+
+  function requestJoin(): void {
+    if (!token.trim()) {
+      setError('Pega el enlace o token de invitación de tu casa.');
+      return;
+    }
+    setError(null);
+    const invitation = parseNfcInvite(token.trim());
+    void requestAccess({ type: 'join', token: invitation?.token ?? token.trim() });
+  }
+
+  async function continueAfterAuthorization(action: AccessAction | null = accessAction): Promise<void> {
+    if (!action) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await rememberHouseholdAuthorization();
+      setAuthorizationGranted(true);
+      if (action.type === 'open') {
+        onHouseholdReady(action.household);
+      } else if (action.type === 'join') {
+        onHouseholdReady(await joinHouseholdByNfcToken(action.token));
+      } else {
+        setShowCreateForm(true);
+        setAccessAction(null);
+      }
+    } catch (caught) {
+      setAccessAction(null);
+      setError(caught instanceof Error ? caught.message : 'No se pudo abrir esta casa.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyNfcLink(household: Household): Promise<void> {
+    await Clipboard.setStringAsync(getNfcInviteUrl(household.nfc_token));
+    setCopiedHouseholdId(household.id);
+    setTimeout(() => setCopiedHouseholdId(null), 1800);
+  }
+
+  async function shareNfcLink(household: Household): Promise<void> {
+    const url = getNfcInviteUrl(household.nfc_token);
+    await Share.share({
+      title: `Etiqueta de ${household.name}`,
+      message: `Abre directamente ${household.name} escaneando esta etiqueta: ${url}`,
+      url,
+    });
+  }
 
   async function create(): Promise<void> {
     if (!name.trim()) {
-      setError('Ponle un nombre a tu hogar 🏡');
+      setError('Ponle un nombre a tu casa 🏡');
       return;
     }
     setError(null);
@@ -47,35 +177,92 @@ export function HouseholdScreen({ pendingNfcToken, onHouseholdReady }: Props) {
     try {
       onHouseholdReady(await createHousehold(name));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No se pudo crear el hogar.');
+      setError(caught instanceof Error ? caught.message : 'No se pudo crear la casa.');
     } finally {
       setBusy(false);
     }
   }
 
-  async function join(): Promise<void> {
-    if (!token.trim()) {
-      setError('Pega el token de invitación de tu etiqueta NFC 📲');
-      return;
-    }
-    setError(null);
-    setBusy(true);
-    try {
-      onHouseholdReady(await joinHouseholdByNfcToken(token));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'El enlace NFC no es válido.');
-    } finally {
-      setBusy(false);
-    }
+  if (accessAction) {
+    const isCreate = accessAction.type === 'create';
+    const isJoin = accessAction.type === 'join';
+    return (
+      <AccessScreen
+        title={isCreate ? 'Crear una casa' : isJoin ? 'Unirte a una casa' : accessAction.household.name}
+        subtitle={
+          isCreate
+            ? 'Introduce la contraseña para continuar al formulario de nueva casa.'
+            : isJoin
+              ? 'Necesitamos confirmar que tienes permiso para entrar.'
+              : 'Introduce la contraseña para entrar en esta casa compartida.'
+        }
+        onAuthorized={() => void continueAfterAuthorization()}
+        onCancel={() => {
+          setAccessAction(null);
+          setError(null);
+        }}
+        busy={busy}
+      />
+    );
+  }
+
+  if (showCreateForm) {
+    return (
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <StatusBar style="light" />
+        <View style={styles.glow} />
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <Pressable style={styles.backButton} onPress={() => setShowCreateForm(false)}>
+              <MaterialCommunityIcons name="arrow-left" size={17} color={COLORS.muted} />
+              <Text style={styles.backText}>Volver a casas</Text>
+            </Pressable>
+            <View style={styles.heroIcon}>
+              <MaterialCommunityIcons name="home-plus-outline" size={31} color={COLORS.lime} />
+            </View>
+            <Text style={styles.eyebrow}>NUEVA CASA</Text>
+            <Text style={styles.title}>Ponle nombre a tu casa</Text>
+            <Text style={styles.subtitle}>Crea un espacio compartido para organizar la compra juntos.</Text>
+            <View style={styles.formCard}>
+              <Text style={styles.label}>NOMBRE DE LA CASA</Text>
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={setName}
+                autoFocus
+                placeholder="Ej. Casa de la playa"
+                placeholderTextColor={COLORS.mutedDeep}
+                onSubmitEditing={() => void create()}
+                returnKeyType="done"
+              />
+              <Pressable
+                style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+                onPress={() => void create()}
+                disabled={busy}
+              >
+                {busy ? <ActivityIndicator color={COLORS.bg} /> : <>
+                  <Text style={styles.primaryText}>Crear casa</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={19} color={COLORS.bg} />
+                </>}
+              </Pressable>
+            </View>
+            {error ? <ErrorBox message={error} /> : null}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
   }
 
   const contentStyle = {
     opacity: entrance,
-    transform: [
-      {
-        translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }),
-      },
-    ],
+    transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }) }],
   };
 
   return (
@@ -85,94 +272,165 @@ export function HouseholdScreen({ pendingNfcToken, onHouseholdReady }: Props) {
     >
       <StatusBar style="light" />
       <View style={styles.glow} />
-
-      <Animated.View style={[styles.content, contentStyle]}>
-        <View style={styles.icon}>
-          <Text style={styles.iconText}>🏠</Text>
-        </View>
-        <Text style={styles.eyebrow}>PRIMER PASO</Text>
-        <Text style={styles.title}>¿Qué compartimos?</Text>
-        <Text style={styles.subtitle}>
-          Crea la lista de tu casa o entra desde una etiqueta NFC.
-        </Text>
-
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconLime}>
-              <MaterialCommunityIcons name="home-plus-outline" size={20} color={COLORS.lime} />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={[styles.content, contentStyle]}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandMark}>
+              <MaterialCommunityIcons name="home-heart" size={28} color={COLORS.bg} />
             </View>
-            <View style={styles.cardCopy}>
-              <Text style={styles.cardEyebrow}>NUEVO HOGAR</Text>
-              <Text style={styles.cardTitle}>Empieza una lista</Text>
+            <View>
+              <Text style={styles.eyebrow}>LISTA DE CASA</Text>
+              <Text style={styles.brandSub}>Tus espacios compartidos</Text>
             </View>
           </View>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Ej. Casa de Aman"
-            placeholderTextColor={COLORS.mutedDeep}
-          />
+          <Text style={styles.title}>Elige tu casa</Text>
+          <Text style={styles.subtitle}>Selecciona una casa para entrar o crea una nueva. Siempre te pediremos autorización.</Text>
+
+          {loading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color={COLORS.lime} />
+              <Text style={styles.loadingText}>Cargando tus casas…</Text>
+            </View>
+          ) : households.length ? (
+            <View style={styles.houseList}>
+              <Text style={styles.sectionLabel}>TUS CASAS · {households.length}</Text>
+              {households.map((household, index) => (
+                <AnimatedHouseholdCard key={household.id} delay={index * 75}>
+                <Pressable
+                  style={({ pressed }) => [styles.houseCard, pressed && styles.housePressed]}
+                  onPress={() => void requestAccess({ type: 'open', household })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Entrar en ${household.name}`}
+                >
+                  <View style={styles.houseIcon}>
+                    <MaterialCommunityIcons name="home-variant-outline" size={23} color={COLORS.lime} />
+                  </View>
+                  <View style={styles.houseCopy}>
+                    <Text style={styles.houseName} numberOfLines={1}>{household.name}</Text>
+                    <Text style={styles.houseMeta}>Lista compartida · Acceso protegido</Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={23} color={COLORS.mutedDeep} />
+                </Pressable>
+                <View style={styles.nfcCard}>
+                  <View style={styles.nfcTop}>
+                    <View style={styles.nfcIcon}>
+                      <MaterialCommunityIcons name="nfc-variant" size={19} color={COLORS.cyan} />
+                    </View>
+                    <View style={styles.nfcCopy}>
+                      <Text style={styles.nfcTitle}>Etiqueta para {household.name}</Text>
+                      <Text style={styles.nfcSubtitle}>
+                        {isNfcBaseUrlConfigured ? 'Escanéala para abrir esta casa directamente.' : 'Ruta local; configura un dominio estable para producción.'}
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={styles.nfcAction}
+                      onPress={() => void shareNfcLink(household)}
+                      accessibilityLabel={`Compartir etiqueta de ${household.name}`}
+                    >
+                      <MaterialCommunityIcons name="share-variant" size={16} color={COLORS.lime} />
+                    </Pressable>
+                    <Pressable
+                      style={styles.nfcAction}
+                      onPress={() => void copyNfcLink(household)}
+                      accessibilityLabel={`Copiar ruta de ${household.name}`}
+                    >
+                      <MaterialCommunityIcons
+                        name={copiedHouseholdId === household.id ? 'check-circle' : 'content-copy'}
+                        size={16}
+                        color={copiedHouseholdId === household.id ? COLORS.lime : COLORS.muted}
+                      />
+                    </Pressable>
+                  </View>
+                  <Text numberOfLines={1} style={styles.nfcUrl}>
+                    {getNfcInviteUrl(household.nfc_token)}
+                  </Text>
+                </View>
+                </AnimatedHouseholdCard>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <View style={styles.emptyIcon}>
+                <MaterialCommunityIcons name="home-search-outline" size={28} color={COLORS.cyan} />
+              </View>
+              <Text style={styles.emptyTitle}>Todavía no tienes casas</Text>
+              <Text style={styles.emptyText}>Crea la primera y empieza a compartir tu lista.</Text>
+            </View>
+          )}
+
           <Pressable
-            style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
-            onPress={() => void create()}
-            disabled={busy}
+            style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}
+            onPress={requestCreate}
           >
-            {busy ? (
-              <ActivityIndicator color={COLORS.bg} size="small" />
-            ) : (
-              <>
-                <Text style={styles.primaryText}>Crear hogar</Text>
-                <MaterialCommunityIcons name="arrow-right" size={18} color={COLORS.bg} />
-              </>
-            )}
+            <MaterialCommunityIcons name="plus" size={21} color={COLORS.bg} />
+            <Text style={styles.primaryText}>Crear una casa</Text>
           </Pressable>
-        </View>
 
-        <View style={styles.orRow}>
-          <View style={styles.line} />
-          <Text style={styles.or}>O</Text>
-          <View style={styles.line} />
-        </View>
-
-        <View style={styles.joinBox}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardIconCyan}>
-              <MaterialCommunityIcons name="nfc-variant" size={20} color={COLORS.cyan} />
+          <View style={styles.joinBox}>
+            <View style={styles.joinHeader}>
+              <View style={styles.joinIcon}>
+                <MaterialCommunityIcons name="nfc-variant" size={21} color={COLORS.cyan} />
+              </View>
+              <View style={styles.houseCopy}>
+                <Text style={styles.joinTitle}>¿Tienes una invitación?</Text>
+                <Text style={styles.joinSubtitle}>Únete con el token o enlace NFC.</Text>
+              </View>
             </View>
-            <View style={styles.cardCopy}>
-              <Text style={styles.cardEyebrow}>INVITACIÓN NFC</Text>
-              <Text style={styles.joinTitle}>Únete a una lista existente</Text>
-            </View>
+            <TextInput
+              style={styles.input}
+              value={token}
+              onChangeText={setToken}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Token de invitación"
+              placeholderTextColor={COLORS.mutedDeep}
+            />
+            <Pressable style={styles.secondary} onPress={requestJoin}>
+              <MaterialCommunityIcons name="link-variant" size={17} color={COLORS.limeDeep} />
+              <Text style={styles.secondaryText}>Continuar con invitación</Text>
+            </Pressable>
           </View>
-          <TextInput
-            style={styles.input}
-            value={token}
-            onChangeText={setToken}
-            autoCapitalize="none"
-            placeholder="Token de la etiqueta"
-            placeholderTextColor={COLORS.mutedDeep}
-          />
-          <Pressable style={styles.secondary} onPress={() => void join()} disabled={busy}>
-            {busy ? (
-              <ActivityIndicator color={COLORS.lime} size="small" />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="link-variant" size={16} color={COLORS.limeDeep} />
-                <Text style={styles.secondaryText}>Unirme a la lista</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
-
-        {error ? (
-          <View style={styles.errorBox}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={16} color={COLORS.danger} />
-            <Text style={styles.error}>{error}</Text>
-          </View>
-        ) : null}
-      </Animated.View>
+          {error ? <ErrorBox message={error} /> : null}
+        </Animated.View>
+      </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function AnimatedHouseholdCard({ children, delay }: { children: React.ReactNode; delay: number }) {
+  const entrance = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      delay,
+      duration: 430,
+      useNativeDriver: true,
+    }).start();
+  }, [delay, entrance]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: entrance,
+        transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <View style={styles.errorBox}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={16} color={COLORS.danger} />
+      <Text style={styles.error}>{message}</Text>
+    </View>
   );
 }
 
@@ -180,100 +438,80 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.bg },
   glow: {
     position: 'absolute',
-    top: -150,
-    left: -110,
-    width: 360,
-    height: 360,
-    borderRadius: 180,
+    top: -160,
+    left: -120,
+    width: 380,
+    height: 380,
+    borderRadius: 190,
     backgroundColor: '#123c35',
-    opacity: 0.5,
+    opacity: 0.52,
   },
-  content: { flex: 1, justifyContent: 'center', padding: 24 },
-  icon: {
+  scrollContent: { flexGrow: 1, paddingVertical: 28, paddingHorizontal: 20 },
+  content: { width: '100%', maxWidth: 640, alignSelf: 'center', paddingVertical: 8 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 28 },
+  brandMark: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 58,
-    height: 58,
-    marginBottom: 22,
-    borderRadius: 18,
-    backgroundColor: COLORS.panel,
-    transform: [{ rotate: '-6deg' }],
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    backgroundColor: COLORS.lime,
+    transform: [{ rotate: '-7deg' }],
   },
-  iconText: { fontSize: 32 },
-  eyebrow: { color: COLORS.lime, fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  brandSub: { marginTop: 3, color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  eyebrow: { color: COLORS.lime, fontSize: 11, fontWeight: '800', letterSpacing: 1.8 },
   title: { marginTop: 10, color: COLORS.text, fontSize: 38, fontWeight: '800', letterSpacing: -1.4 },
   subtitle: { marginTop: 12, color: COLORS.muted, fontSize: 16, lineHeight: 23 },
-  card: { marginTop: 26, padding: 18, borderRadius: 20, backgroundColor: COLORS.panel },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  cardIconLime: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#1d3a2b',
-  },
-  cardIconCyan: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#143331',
-  },
-  cardCopy: { flex: 1 },
-  cardEyebrow: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.6 },
-  cardTitle: { marginTop: 5, color: COLORS.text, fontSize: 19, fontWeight: '800' },
-  joinTitle: { marginTop: 5, color: COLORS.text, fontSize: 17, fontWeight: '800' },
-  input: {
-    height: 50,
-    marginTop: 15,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: COLORS.lineSoft,
-    borderRadius: 14,
-    backgroundColor: COLORS.panelDeep,
-    color: COLORS.text,
-    fontSize: 15,
-  },
-  primary: {
+  sectionLabel: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.6, marginBottom: 9 },
+  houseList: { marginTop: 25 },
+  houseCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 50,
-    marginTop: 12,
-    borderRadius: 14,
-    backgroundColor: COLORS.lime,
-  },
-  primaryText: { color: COLORS.bg, fontWeight: '800', fontSize: 15 },
-  secondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    height: 48,
-    marginTop: 12,
+    gap: 12,
+    minHeight: 76,
+    marginBottom: 9,
+    padding: 13,
     borderWidth: 1,
-    borderColor: '#3c6b52',
-    borderRadius: 14,
+    borderColor: COLORS.line,
+    borderRadius: 18,
+    backgroundColor: COLORS.panel,
   },
-  secondaryText: { color: COLORS.limeDeep, fontSize: 15, fontWeight: '800' },
-  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 18 },
-  line: { flex: 1, height: 1, backgroundColor: COLORS.line },
-  or: { color: COLORS.mutedDeep, fontSize: 11, fontWeight: '800' },
-  joinBox: { padding: 18, borderWidth: 1, borderColor: COLORS.line, borderRadius: 20 },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 14,
-    padding: 11,
-    borderWidth: 1,
-    borderColor: '#5a2b26',
-    borderRadius: 12,
-    backgroundColor: '#2a1613',
-  },
+  housePressed: { borderColor: COLORS.lime, opacity: 0.84, transform: [{ scale: 0.99 }] },
+  houseIcon: { alignItems: 'center', justifyContent: 'center', width: 46, height: 46, borderRadius: 14, backgroundColor: '#1d3a2b' },
+  houseCopy: { flex: 1 },
+  houseName: { color: COLORS.textSoft, fontSize: 17, fontWeight: '800' },
+  houseMeta: { marginTop: 4, color: COLORS.mutedDeep, fontSize: 11 },
+  loadingBox: { alignItems: 'center', gap: 11, marginTop: 46 },
+  loadingText: { color: COLORS.muted, fontSize: 13 },
+  emptyCard: { alignItems: 'center', marginTop: 25, padding: 25, borderWidth: 1, borderColor: COLORS.line, borderRadius: 20, backgroundColor: COLORS.panel },
+  emptyIcon: { alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: 18, backgroundColor: '#143331' },
+  emptyTitle: { marginTop: 13, color: COLORS.textSoft, fontSize: 17, fontWeight: '800' },
+  emptyText: { marginTop: 5, color: COLORS.muted, textAlign: 'center', fontSize: 13, lineHeight: 19 },
+  createButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 54, marginTop: 16, borderRadius: 16, backgroundColor: COLORS.lime },
+  primaryText: { color: COLORS.bg, fontSize: 15, fontWeight: '800' },
+  nfcCard: { marginBottom: 9, marginTop: -3, padding: 11, borderWidth: 1, borderColor: '#2a5142', borderRadius: 14, backgroundColor: '#0d1e1a' },
+  nfcTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  nfcIcon: { alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 10, backgroundColor: '#143331' },
+  nfcCopy: { flex: 1 },
+  nfcTitle: { color: COLORS.textSoft, fontSize: 12, fontWeight: '800' },
+  nfcSubtitle: { marginTop: 2, color: COLORS.mutedDeep, fontSize: 10, lineHeight: 14 },
+  nfcAction: { alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.panel },
+  nfcUrl: { marginTop: 8, color: COLORS.mutedDeep, fontSize: 9 },
+  joinBox: { marginTop: 24, padding: 16, borderWidth: 1, borderColor: COLORS.line, borderRadius: 19, backgroundColor: 'rgba(16,35,31,0.6)' },
+  joinHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  joinIcon: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 13, backgroundColor: '#143331' },
+  joinTitle: { color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
+  joinSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 12 },
+  input: { height: 52, marginTop: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 15 },
+  secondary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 48, marginTop: 11, borderWidth: 1, borderColor: '#3c6b52', borderRadius: 14 },
+  secondaryText: { color: COLORS.limeDeep, fontSize: 14, fontWeight: '800' },
+  formCard: { marginTop: 28, padding: 18, borderRadius: 20, backgroundColor: COLORS.panel },
+  heroIcon: { alignItems: 'center', justifyContent: 'center', width: 62, height: 62, marginBottom: 22, borderRadius: 20, backgroundColor: '#173a32', transform: [{ rotate: '-6deg' }] },
+  label: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8 },
+  primary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, marginTop: 12, borderRadius: 14, backgroundColor: COLORS.lime },
+  pressed: { opacity: 0.8, transform: [{ scale: 0.99 }] },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', padding: 5, marginBottom: 28 },
+  backText: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
+  errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 14, padding: 11, borderWidth: 1, borderColor: '#5a2b26', borderRadius: 12, backgroundColor: '#2a1613' },
   error: { flex: 1, color: COLORS.danger, fontSize: 13, lineHeight: 19 },
 });

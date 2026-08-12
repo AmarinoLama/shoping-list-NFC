@@ -9,7 +9,19 @@ export type Household = {
   id: string;
   name: string;
   nfc_token: string;
-  created_by: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type HouseholdProduct = {
+  id: string;
+  household_id: string;
+  normalized_name: string;
+  display_name: string;
+  image_url: string | null;
+  category: string;
+  purchase_count: number;
+  last_purchased_at: string;
   created_at: string;
 };
 
@@ -19,8 +31,9 @@ export type ShoppingItem = {
   name: string;
   quantity: string;
   category: string;
+  image_url: string | null;
   is_completed: boolean;
-  created_by: string;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -11,6 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     name: config.name ?? 'Lista de Casa',
     slug: config.slug ?? 'lista-de-casa',
     version: config.version ?? '1.0.0',
+    icon: './assets/icon.png',
     scheme: 'lista-casa',
     ios: {
       ...config.ios,
