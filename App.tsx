@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, AppState, Easing, StyleSheet, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { Session } from '@supabase/supabase-js';
 import { StatusBar } from 'expo-status-bar';
@@ -114,12 +114,46 @@ export default function App() {
 }
 
 function LoadingScreen({ label = 'Cargando…' }: { label?: string }) {
+  const bounce = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bounce, {
+          toValue: 1,
+          duration: 550,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(bounce, {
+          toValue: 0,
+          duration: 550,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [bounce]);
+
   return (
     <View style={styles.loading}>
       <StatusBar style="light" />
-      <View style={styles.loadingMark}>
-        <Text style={styles.loadingMarkText}>✓</Text>
-      </View>
+      <Animated.View
+        style={[
+          styles.loadingMark,
+          {
+            transform: [
+              {
+                translateY: bounce.interpolate({ inputRange: [0, 1], outputRange: [0, -12] }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Text style={styles.loadingMarkText}>🛒</Text>
+      </Animated.View>
       <ActivityIndicator color="#a7f36a" />
       <Text style={styles.loadingText}>{label}</Text>
     </View>
@@ -137,12 +171,13 @@ const styles = StyleSheet.create({
   loadingMark: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 54,
-    height: 54,
+    width: 60,
+    height: 60,
     marginBottom: 8,
-    borderRadius: 18,
+    borderRadius: 20,
     backgroundColor: '#a7f36a',
+    transform: [{ rotate: '-6deg' }],
   },
-  loadingMarkText: { color: '#10210e', fontSize: 28, fontWeight: '900' },
+  loadingMarkText: { fontSize: 32 },
   loadingText: { color: '#9badab', fontSize: 14 },
 });

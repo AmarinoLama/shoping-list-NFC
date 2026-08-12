@@ -20,9 +20,30 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 3. Rellena `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` desde **Project Settings → API**.
 4. Configura `EXPO_PUBLIC_NFC_BASE_URL` y `EXPO_PUBLIC_NFC_DOMAIN` cuando tengas un dominio HTTPS para las etiquetas.
 5. Ejecuta el contenido de `supabase/migrations/202608120001_initial_schema.sql` en el SQL Editor de Supabase.
-6. Comprueba que Realtime está habilitado para `public.shopping_items`.
+6. Ejecuta también `supabase/migrations/202608120002_ensure_rpc_functions.sql` (idempotente).
+7. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
 La migración crea las tablas, índices, funciones seguras, políticas RLS y la publicación realtime. No uses nunca una service-role key dentro de la aplicación móvil.
+
+### Error 404 al crear un hogar (PGRST202)
+
+Si al pulsar **Crear hogar** aparece un `404` en `POST /rest/v1/rpc/create_household`, es porque las funciones RPC no existen en tu base de datos (la migración inicial no se aplicó completa o quedó a medias). La app llama a estas funciones por RPC:
+
+- `create_household(text)` — crear un hogar.
+- `join_household_by_nfc_token(text)` — unirse por etiqueta NFC.
+- `get_my_households()` — listar los hogares del usuario.
+
+Solución: abre el **SQL Editor** de tu proyecto Supabase, pega todo el contenido de `supabase/migrations/202608120002_ensure_rpc_functions.sql` y ejecútalo. Vuelve a probar y debería funcionar. La migración es segura de re-ejecutar.
+
+### Email de confirmación
+
+Al registrarte, Supabase puede pedir confirmar el email. Para que el enlace del email funcione:
+
+1. En **Authentication → URL Configuration**, añade la URL real donde corre la app a **Redirect URLs**, por ejemplo `https://tu-dominio.com/**` (o el dominio de tu Worker/Cloudflare). Sin esto, al pulsar el enlace del email Supabase rechazará el redirect.
+2. Revisa que la plantilla de **Confirm signup** en *Authentication → Emails* apunte al comportamiento correcto.
+3. Tras pulsar el enlace, la app te devuelve a la pantalla de inicio de sesión con el email ya rellenado: entra con tu contraseña.
+
+En la app nativa, el enlace usa el esquema `lista-casa://` (configurado en `app.config.ts`); en web usa `window.location.origin` para devolverte siempre al dominio real desde el que abriste la app.
 
 ## Desarrollo local
 
