@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -44,6 +45,8 @@ const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index 
 const QUANTITY_ITEM_HEIGHT = 48;
 
 export function ListScreen({ household, onChangeHouse }: Props) {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
@@ -204,21 +207,46 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.6,
       });
-      if (!result.canceled) {
-        setSelectedImageUrl(await uploadProductImage({
-          householdId: household.id,
-          uri: result.assets[0].uri,
-          contentType: result.assets[0].mimeType,
-        }));
-      }
+      await savePickedProductImage(result);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No se pudo guardar la foto del producto.');
+      setError(friendlyImageError(caught));
     } finally {
       setImageUploadBusy(false);
     }
+  }
+
+  async function chooseProductPhoto(): Promise<void> {
+    setImageUploadBusy(true);
+    setError(null);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError('Necesitamos permiso para seleccionar una imagen.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.6,
+      });
+      await savePickedProductImage(result);
+    } catch (caught) {
+      setError(friendlyImageError(caught));
+    } finally {
+      setImageUploadBusy(false);
+    }
+  }
+
+  async function savePickedProductImage(result: ImagePicker.ImagePickerResult): Promise<void> {
+    const asset = result.canceled ? null : result.assets[0];
+    if (!asset) return;
+    setSelectedImageUrl(await uploadProductImage({
+      householdId: household.id,
+      uri: asset.uri,
+      width: asset.width,
+    }));
   }
 
   async function addItem(): Promise<void> {
@@ -345,7 +373,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, compact && styles.screenCompact]}
       behavior={Platform.OS === 'android' ? 'height' : 'padding'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
@@ -353,11 +381,11 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       <AmbientGroceries />
       <ConfettiBurst trigger={celebrate} />
 
-      <View style={styles.content}>
-      <Animated.View style={[styles.header, headerStyle]}>
+      <View style={[styles.content, compact && styles.contentCompact]}>
+      <Animated.View style={[styles.header, compact && styles.headerCompact, headerStyle]}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>LISTA COMPARTIDA</Text>
-          <Text style={styles.title}>
+          <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>
             {household.name} {pendingCount === 0 && items.length > 0 ? '🎉' : '🛒'}
           </Text>
           <View style={styles.countRow}>
@@ -370,7 +398,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             ) : null}
           </View>
         </View>
-        <View style={styles.headerActions}>
+        <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
           <Pressable
             style={({ pressed }) => [styles.backHouseButton, pressed && styles.pressed]}
             onPress={onChangeHouse}
@@ -403,9 +431,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       ) : null}
 
       <View style={styles.addCard}>
-        <View style={styles.addRow}>
+        <View style={[styles.addRow, compact && styles.addRowCompact]}>
           <TextInput
-            style={styles.itemInput}
+            style={[styles.itemInput, compact && styles.itemInputCompact]}
             value={name}
             onChangeText={changeProductName}
             onSubmitEditing={() => void addItem()}
@@ -421,16 +449,23 @@ export function ListScreen({ household, onChangeHouse }: Props) {
           >
             <Text style={styles.quantityValue}>{quantity}</Text>
             <MaterialCommunityIcons name="chevron-down" size={16} color={COLORS.muted} />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}
-            onPress={() => void takeProductPhoto()}
-            disabled={imageUploadBusy}
-            accessibilityLabel="Hacer foto del producto"
-          >
-            {imageUploadBusy ? <ActivityIndicator color={COLORS.cyan} size="small" /> : <MaterialCommunityIcons name="camera-outline" size={21} color={COLORS.cyan} />}
-          </Pressable>
-          <Pressable
+          </Pressable>            <Pressable
+              style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}
+              onPress={() => void takeProductPhoto()}
+              disabled={imageUploadBusy}
+              accessibilityLabel="Hacer foto y recortar el producto"
+            >
+              {imageUploadBusy ? <ActivityIndicator color={COLORS.cyan} size="small" /> : <MaterialCommunityIcons name="camera-outline" size={21} color={COLORS.cyan} />}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.galleryButton, pressed && styles.pressed]}
+              onPress={() => void chooseProductPhoto()}
+              disabled={imageUploadBusy}
+              accessibilityLabel="Elegir una imagen y recortarla"
+            >
+              <MaterialCommunityIcons name="image-outline" size={21} color={COLORS.cyan} />
+            </Pressable>
+            <Pressable
             style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
             onPress={() => void addItem()}
             disabled={busy}
@@ -844,6 +879,15 @@ function FunCheckbox({ checked, onPress }: { checked: boolean; onPress: () => vo
 }
 
 /** Explosión de confeti al completar un producto. */
+function friendlyImageError(caught: unknown): string {
+  const message = caught instanceof Error ? caught.message : String(caught ?? '');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('row-level security') || normalized.includes('rls') || normalized.includes('new row violates')) {
+    return 'Supabase está bloqueando la imagen. Ejecuta la migración 202608120006_anonymous_product_image_uploads.sql y vuelve a intentarlo.';
+  }
+  return message || 'No se pudo guardar la imagen del producto.';
+}
+
 function ConfettiBurst({ trigger }: { trigger: number }) {
   const [running, setRunning] = useState(false);
   const particles = useRef(
@@ -930,13 +974,15 @@ function ConfettiBurst({ trigger }: { trigger: number }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: 'center', backgroundColor: COLORS.bg, paddingHorizontal: 16 },
+  screenCompact: { paddingHorizontal: 12 },
   ambientLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 },
   ambientItem: { position: 'absolute', opacity: 0.14 },
   ambientEmoji: { fontSize: 30 },
   ambientOne: { top: 138, right: 10 },
   ambientTwo: { top: 330, left: 7 },
   ambientThree: { bottom: 125, right: 20 },
-  content: { flex: 1, width: '100%', maxWidth: 760, zIndex: 1 },
+  content: { flex: 1, width: '100%', maxWidth: 760, zIndex: 1, backgroundColor: COLORS.bg },
+  contentCompact: { maxWidth: 420 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -944,13 +990,16 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 10,
   },
-  headerCopy: { flex: 1 },
+  headerCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  headerCopy: { flex: 1, minWidth: 0 },
   eyebrow: { color: COLORS.lime, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 },
-  title: { marginTop: 5, color: COLORS.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.8 },
+  title: { marginTop: 5, color: COLORS.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.8, flexShrink: 1 },
+  titleCompact: { fontSize: 26, lineHeight: 31 },
   countRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   count: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
   countDone: { color: COLORS.mutedDeep, fontSize: 13 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  headerActionsCompact: { alignSelf: 'flex-end', marginTop: 9 },
   backHouseButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 42, paddingHorizontal: 10, borderRadius: 14, backgroundColor: COLORS.panel, borderWidth: 1, borderColor: COLORS.line },
   backHouseText: { color: COLORS.cyan, fontSize: 12, fontWeight: '800' },
   avatar: {
@@ -976,6 +1025,7 @@ const styles = StyleSheet.create({
   progressText: { color: COLORS.lime, fontSize: 11, fontWeight: '800', width: 34, textAlign: 'right' },
   addCard: { marginTop: 16, padding: 12, borderRadius: 18, backgroundColor: COLORS.panel },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  addRowCompact: { flexWrap: 'wrap' },
   itemInput: {
     flex: 1,
     height: 46,
@@ -985,7 +1035,9 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     color: COLORS.text,
     fontSize: 15,
+    minWidth: 0,
   },
+  itemInputCompact: { flexBasis: '100%', width: '100%' },
   quantityPickerButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1000,6 +1052,7 @@ const styles = StyleSheet.create({
   },
   quantityValue: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
   cameraButton: { alignItems: 'center', justifyContent: 'center', width: 46, height: 46, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 13, backgroundColor: COLORS.panelDeep },
+  galleryButton: { alignItems: 'center', justifyContent: 'center', width: 46, height: 46, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 13, backgroundColor: COLORS.panelDeep },
   addButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1058,8 +1111,8 @@ const styles = StyleSheet.create({
   },
   error: { flex: 1, color: COLORS.danger, fontSize: 12, lineHeight: 17 },
   loader: { marginTop: 28 },
-  list: { flex: 1 },
-  listContent: { paddingBottom: 18 },
+  list: { flex: 1, backgroundColor: COLORS.bg },
+  listContent: { paddingBottom: 18, backgroundColor: COLORS.bg },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -33,8 +33,17 @@ export const COLORS = {
 export const CATEGORY_META: Record<ItemCategory, { emoji: string; icon: IconName }> = {
   Fruta: { emoji: '🍎', icon: 'fruit-cherries' },
   Verdura: { emoji: '🥕', icon: 'carrot' },
+  'Carne y pescado': { emoji: '🥩', icon: 'food-steak' },
   Lácteos: { emoji: '🧀', icon: 'cheese' },
+  Panadería: { emoji: '🥖', icon: 'bread-slice' },
+  Congelados: { emoji: '❄️', icon: 'snowflake' },
+  Bebidas: { emoji: '🥤', icon: 'cup' },
   Despensa: { emoji: '🥫', icon: 'shopping' },
+  Snacks: { emoji: '🍪', icon: 'cookie' },
+  Limpieza: { emoji: '🧴', icon: 'spray-bottle' },
+  Higiene: { emoji: '🪥', icon: 'toothbrush' },
   Hogar: { emoji: '🧺', icon: 'broom' },
+  Mascotas: { emoji: '🐾', icon: 'paw' },
+  Bebé: { emoji: '🍼', icon: 'baby-face-outline' },
   Otros: { emoji: '🛍️', icon: 'dots-horizontal-circle' },
 };

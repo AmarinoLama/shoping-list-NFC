@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -44,6 +45,8 @@ type AccessAction =
   | { type: 'join'; token: string };
 
 export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
+  const { width } = useWindowDimensions();
+  const compact = width < 360;
   const [households, setHouseholds] = useState<Household[]>([]);
   const [token, setToken] = useState(pendingNfcInvite?.token ?? '');
   const [name, setName] = useState('');
@@ -216,11 +219,12 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
         <StatusBar style="light" />
         <View style={styles.glow} />
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, compact && styles.scrollContentCompact]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.content}>
+          <View style={[styles.content, compact && styles.contentCompact]}>
             <Pressable style={styles.backButton} onPress={() => setShowCreateForm(false)}>
               <MaterialCommunityIcons name="arrow-left" size={17} color={COLORS.muted} />
               <Text style={styles.backText}>Volver a casas</Text>
@@ -229,8 +233,8 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               <MaterialCommunityIcons name="home-plus-outline" size={31} color={COLORS.lime} />
             </View>
             <Text style={styles.eyebrow}>NUEVA CASA</Text>
-            <Text style={styles.title}>Ponle nombre a tu casa</Text>
-            <Text style={styles.subtitle}>Crea un espacio compartido para organizar la compra juntos.</Text>
+            <Text style={[styles.title, compact && styles.titleCompact]}>Ponle nombre a tu casa</Text>
+            <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>Crea un espacio compartido para organizar la compra juntos.</Text>
             <View style={styles.formCard}>
               <Text style={styles.label}>NOMBRE DE LA CASA</Text>
               <TextInput
@@ -275,11 +279,12 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
       <StatusBar style="light" />
       <View style={styles.glow} />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, compact && styles.scrollContentCompact]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View style={[styles.content, contentStyle]}>
+        <Animated.View style={[styles.content, compact && styles.contentCompact, contentStyle]}>
           <View style={styles.brandRow}>
             <View style={styles.brandMark}>
               <MaterialCommunityIcons name="home-heart" size={28} color={COLORS.bg} />
@@ -289,8 +294,8 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               <Text style={styles.brandSub}>Tus espacios compartidos</Text>
             </View>
           </View>
-          <Text style={styles.title}>Elige tu casa</Text>
-          <Text style={styles.subtitle}>Selecciona una casa para entrar o crea una nueva. Siempre te pediremos autorización.</Text>
+          <Text style={[styles.title, compact && styles.titleCompact]}>Elige tu casa</Text>
+          <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>Selecciona una casa para entrar o crea una nueva. Siempre te pediremos autorización.</Text>
 
           {loading ? (
             <View style={styles.loadingBox}>
@@ -302,41 +307,32 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               <Text style={styles.sectionLabel}>TUS CASAS · {households.length}</Text>
               {households.map((household, index) => (
                 <AnimatedHouseholdCard key={household.id} delay={index * 75}>
-                <Pressable
-                  style={({ pressed }) => [styles.houseCard, pressed && styles.housePressed]}
-                  onPress={() => void requestAccess({ type: 'open', household })}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Entrar en ${household.name}`}
-                >
-                  <View style={styles.houseIcon}>
-                    <MaterialCommunityIcons name="home-variant-outline" size={23} color={COLORS.lime} />
-                  </View>
-                  <View style={styles.houseCopy}>
-                    <Text style={styles.houseName} numberOfLines={1}>{household.name}</Text>
-                    <Text style={styles.houseMeta}>Lista compartida · Acceso protegido</Text>
-                  </View>
-                  <MaterialCommunityIcons name="chevron-right" size={23} color={COLORS.mutedDeep} />
-                </Pressable>
-                <View style={styles.nfcCard}>
-                  <View style={styles.nfcTop}>
-                    <View style={styles.nfcIcon}>
-                      <MaterialCommunityIcons name="nfc-variant" size={19} color={COLORS.cyan} />
-                    </View>
-                    <View style={styles.nfcCopy}>
-                      <Text style={styles.nfcTitle}>Etiqueta para {household.name}</Text>
-                      <Text style={styles.nfcSubtitle}>
-                        {isNfcBaseUrlConfigured ? 'Escanéala para abrir esta casa directamente.' : 'Ruta local; configura un dominio estable para producción.'}
-                      </Text>
-                    </View>
+                <View style={styles.houseCard}>
+                  <View style={[styles.houseRow, compact && styles.houseRowCompact]}>
                     <Pressable
-                      style={styles.nfcAction}
+                      style={({ pressed }) => [styles.houseMain, compact && styles.houseMainCompact, pressed && styles.housePressed]}
+                      onPress={() => void requestAccess({ type: 'open', household })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Entrar en ${household.name}`}
+                    >
+                      <View style={[styles.houseIcon, compact && styles.houseIconCompact]}>
+                        <MaterialCommunityIcons name="home-variant-outline" size={23} color={COLORS.lime} />
+                      </View>
+                      <View style={styles.houseCopy}>
+                        <Text style={styles.houseName} numberOfLines={1}>{household.name}</Text>
+                        <Text style={styles.houseMeta}>Lista compartida · Acceso protegido</Text>
+                      </View>
+                      <MaterialCommunityIcons name="chevron-right" size={23} color={COLORS.mutedDeep} />
+                    </Pressable>
+                    <Pressable
+                      style={[styles.nfcAction, compact && styles.nfcActionCompact]}
                       onPress={() => void shareNfcLink(household)}
                       accessibilityLabel={`Compartir etiqueta de ${household.name}`}
                     >
                       <MaterialCommunityIcons name="share-variant" size={16} color={COLORS.lime} />
                     </Pressable>
                     <Pressable
-                      style={styles.nfcAction}
+                      style={[styles.nfcAction, compact && styles.nfcActionCompact]}
                       onPress={() => void copyNfcLink(household)}
                       accessibilityLabel={`Copiar ruta de ${household.name}`}
                     >
@@ -347,9 +343,22 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
                       />
                     </Pressable>
                   </View>
+                  <View style={styles.nfcCard}>
+                  <View style={styles.nfcTop}>
+                    <View style={styles.nfcIcon}>
+                      <MaterialCommunityIcons name="nfc-variant" size={19} color={COLORS.cyan} />
+                    </View>
+                    <View style={styles.nfcCopy}>
+                      <Text style={styles.nfcTitle}>Etiqueta para {household.name}</Text>
+                      <Text style={styles.nfcSubtitle}>
+                        {isNfcBaseUrlConfigured ? 'Escanéala para abrir esta casa directamente.' : 'Ruta local; configura un dominio estable para producción.'}
+                      </Text>
+                    </View>
+                  </View>
                   <Text numberOfLines={1} style={styles.nfcUrl}>
                     {getNfcInviteUrl(household.nfc_token)}
                   </Text>
+                  </View>
                 </View>
                 </AnimatedHouseholdCard>
               ))}
@@ -379,7 +388,22 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
               </View>
               <View style={styles.houseCopy}>
                 <Text style={styles.joinTitle}>¿Tienes una invitación?</Text>
-                <Text style={styles.joinSubtitle}>Únete con el token o enlace NFC.</Text>
+                <Text style={styles.joinSubtitle}>Escanea una etiqueta o pega aquí su enlace.</Text>
+              </View>
+            </View>
+            <View style={styles.joinHelp}>
+              <MaterialCommunityIcons name="information-outline" size={18} color={COLORS.cyan} />
+              <View style={styles.joinHelpCopy}>
+                <Text style={styles.joinHelpTitle}>¿Cómo funciona?</Text>
+                <Text style={styles.joinHelpText}>
+                  Una persona que ya está dentro de la casa puede pulsar compartir para enviarte el enlace o copiarlo para usarlo en una etiqueta NFC.
+                </Text>
+                <Text style={styles.joinHelpText}>
+                  Si escaneas la etiqueta, la casa se abre directamente. Si recibes un enlace, pégalo completo aquí o introduce solo el token.
+                </Text>
+                <Text style={styles.joinHelpText}>
+                  La primera vez se te pedirá autorización; después quedará guardada en este dispositivo.
+                </Text>
               </View>
             </View>
             <TextInput
@@ -463,8 +487,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#123c35',
     opacity: 0.52,
   },
-  scrollContent: { flexGrow: 1, paddingVertical: 28, paddingHorizontal: 20 },
+  scroll: { flex: 1, backgroundColor: COLORS.bg },
+  scrollContent: { flexGrow: 1, paddingVertical: 28, paddingHorizontal: 20, backgroundColor: COLORS.bg },
+  scrollContentCompact: { paddingVertical: 20, paddingHorizontal: 14 },
   content: { width: '100%', maxWidth: 640, alignSelf: 'center', paddingVertical: 8 },
+  contentCompact: { maxWidth: 420, paddingVertical: 4 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 28 },
   brandMark: {
     alignItems: 'center',
@@ -478,23 +505,26 @@ const styles = StyleSheet.create({
   brandSub: { marginTop: 3, color: COLORS.muted, fontSize: 12, fontWeight: '700' },
   eyebrow: { color: COLORS.lime, fontSize: 11, fontWeight: '800', letterSpacing: 1.8 },
   title: { marginTop: 10, color: COLORS.text, fontSize: 38, fontWeight: '800', letterSpacing: -1.4 },
+  titleCompact: { fontSize: 31, lineHeight: 36, letterSpacing: -1 },
   subtitle: { marginTop: 12, color: COLORS.muted, fontSize: 16, lineHeight: 23 },
+  subtitleCompact: { fontSize: 14, lineHeight: 20 },
   sectionLabel: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.6, marginBottom: 9 },
   houseList: { marginTop: 25 },
   houseCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: 76,
     marginBottom: 9,
-    padding: 13,
     borderWidth: 1,
     borderColor: COLORS.line,
     borderRadius: 18,
     backgroundColor: COLORS.panel,
+    overflow: 'hidden',
   },
-  housePressed: { borderColor: COLORS.lime, opacity: 0.84, transform: [{ scale: 0.99 }] },
+  houseRow: { flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: 76, padding: 13 },
+  houseRowCompact: { padding: 10, gap: 5 },
+  houseMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0, paddingVertical: 4, borderRadius: 12 },
+  houseMainCompact: { gap: 8 },
+  housePressed: { backgroundColor: '#173127', opacity: 0.84 },
   houseIcon: { alignItems: 'center', justifyContent: 'center', width: 46, height: 46, borderRadius: 14, backgroundColor: '#1d3a2b' },
+  houseIconCompact: { width: 42, height: 42, borderRadius: 13 },
   houseCopy: { flex: 1 },
   houseName: { color: COLORS.textSoft, fontSize: 17, fontWeight: '800' },
   houseMeta: { marginTop: 4, color: COLORS.mutedDeep, fontSize: 11 },
@@ -506,19 +536,24 @@ const styles = StyleSheet.create({
   emptyText: { marginTop: 5, color: COLORS.muted, textAlign: 'center', fontSize: 13, lineHeight: 19 },
   createButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 54, marginTop: 16, borderRadius: 16, backgroundColor: COLORS.lime },
   primaryText: { color: COLORS.bg, fontSize: 15, fontWeight: '800' },
-  nfcCard: { marginBottom: 9, marginTop: -3, padding: 11, borderWidth: 1, borderColor: '#2a5142', borderRadius: 14, backgroundColor: '#0d1e1a' },
+  nfcCard: { marginTop: 0, padding: 11, borderTopWidth: 1, borderTopColor: '#2a5142', backgroundColor: '#0d1e1a' },
   nfcTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   nfcIcon: { alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 10, backgroundColor: '#143331' },
   nfcCopy: { flex: 1 },
   nfcTitle: { color: COLORS.textSoft, fontSize: 12, fontWeight: '800' },
   nfcSubtitle: { marginTop: 2, color: COLORS.mutedDeep, fontSize: 10, lineHeight: 14 },
   nfcAction: { alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.panel },
+  nfcActionCompact: { width: 29, height: 29, borderRadius: 9 },
   nfcUrl: { marginTop: 8, color: COLORS.mutedDeep, fontSize: 9 },
   joinBox: { marginTop: 24, padding: 16, borderWidth: 1, borderColor: COLORS.line, borderRadius: 19, backgroundColor: 'rgba(16,35,31,0.6)' },
   joinHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   joinIcon: { alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 13, backgroundColor: '#143331' },
   joinTitle: { color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
   joinSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 12 },
+  joinHelp: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 15, padding: 11, borderRadius: 13, backgroundColor: '#12302d' },
+  joinHelpCopy: { flex: 1, gap: 7 },
+  joinHelpTitle: { color: COLORS.textSoft, fontSize: 12, fontWeight: '800' },
+  joinHelpText: { color: COLORS.muted, fontSize: 11, lineHeight: 16 },
   input: { height: 52, marginTop: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 15 },
   secondary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, height: 48, marginTop: 11, borderWidth: 1, borderColor: '#3c6b52', borderRadius: 14 },
   secondaryText: { color: COLORS.limeDeep, fontSize: 14, fontWeight: '800' },

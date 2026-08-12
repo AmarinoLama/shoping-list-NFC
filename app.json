@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "scheme": "lista-casa",
     "userInterfaceStyle": "dark",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/2849824-basket-buy-market-multimedia-shop-shopping-store_107977.png",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -30,14 +30,14 @@
       "package": "com.smartview.listadecasa",
       "adaptiveIcon": {
         "backgroundColor": "#071312",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/2849824-basket-buy-market-multimedia-shop-shopping-store_107977.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png",
+      "favicon": "./assets/2849824-basket-buy-market-multimedia-shop-shopping-store_107977.png",
       "bundler": "metro"
     }
   }

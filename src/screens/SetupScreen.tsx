@@ -1,9 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 export function SetupScreen() {
   return (
-    <View style={styles.screen}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
       <StatusBar style="light" />
       <View style={styles.icon}>
         <Text style={styles.iconText}>⌁</Text>
@@ -24,12 +28,13 @@ export function SetupScreen() {
       <Text style={styles.hint}>
         Después aplica la migración SQL incluida en supabase/migrations.
       </Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center', justifyContent: 'center', padding: 28, backgroundColor: '#071312' },
+  screen: { flex: 1, width: '100%', backgroundColor: '#071312' },
+  scrollContent: { flexGrow: 1, width: '100%', maxWidth: 720, alignSelf: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#071312' },
   icon: {
     alignItems: 'center',
     justifyContent: 'center',

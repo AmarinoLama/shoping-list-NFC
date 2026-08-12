@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -27,6 +28,8 @@ type Props = {
 };
 
 export function AccessScreen({ title, subtitle, onAuthorized, onCancel, busy = false }: Props) {
+  const { width } = useWindowDimensions();
+  const compact = width < 360;
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +59,14 @@ export function AccessScreen({ title, subtitle, onAuthorized, onCancel, busy = f
       <View style={styles.glow} />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, compact && styles.scrollContentCompact]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
       <Animated.View
         style={[
           styles.content,
+          compact && styles.contentCompact,
           {
             opacity: entrance,
             transform: [
@@ -73,12 +77,12 @@ export function AccessScreen({ title, subtitle, onAuthorized, onCancel, busy = f
           },
         ]}
       >
-        <View style={styles.icon}>
+        <View style={[styles.icon, compact && styles.iconCompact]}>
           <MaterialCommunityIcons name="shield-lock-outline" size={30} color={COLORS.lime} />
         </View>
         <Text style={styles.eyebrow}>AUTORIZACIÓN DE CASA</Text>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
+        <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+        <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>{subtitle}</Text>
 
         <View style={[styles.field, error && styles.fieldError]}>
           <MaterialCommunityIcons name="key-outline" size={20} color={COLORS.mutedDeep} />
@@ -156,8 +160,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#123c35',
     opacity: 0.55,
   },
-  scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1 },
+  scroll: { flex: 1, backgroundColor: COLORS.bg },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 12, backgroundColor: COLORS.bg },
+  scrollContentCompact: { paddingHorizontal: 8 },
   content: {
     flex: 1,
     width: '100%',
@@ -166,6 +171,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
+  contentCompact: { padding: 18 },
   icon: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -176,9 +182,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#173a32',
     transform: [{ rotate: '-6deg' }],
   },
+  iconCompact: { alignSelf: 'center', width: 58, height: 58, marginBottom: 18 },
   eyebrow: { color: COLORS.lime, fontSize: 11, fontWeight: '800', letterSpacing: 1.8 },
   title: { marginTop: 10, color: COLORS.text, fontSize: 34, fontWeight: '800', letterSpacing: -1 },
+  titleCompact: { fontSize: 29, lineHeight: 35, letterSpacing: -0.6 },
   subtitle: { marginTop: 12, color: COLORS.muted, fontSize: 16, lineHeight: 23 },
+  subtitleCompact: { fontSize: 14, lineHeight: 20 },
   field: {
     flexDirection: 'row',
     alignItems: 'center',

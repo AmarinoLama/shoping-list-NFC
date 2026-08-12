@@ -41,9 +41,18 @@ export type ShoppingItem = {
 export const ITEM_CATEGORIES = [
   'Fruta',
   'Verdura',
+  'Carne y pescado',
   'Lácteos',
+  'Panadería',
+  'Congelados',
+  'Bebidas',
   'Despensa',
+  'Snacks',
+  'Limpieza',
+  'Higiene',
   'Hogar',
+  'Mascotas',
+  'Bebé',
   'Otros',
 ] as const;
 export type ItemCategory = (typeof ITEM_CATEGORIES)[number];

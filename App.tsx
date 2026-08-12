@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { ListScreen } from './src/screens/ListScreen';
@@ -25,18 +26,34 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  if (!isSupabaseConfigured) return <SetupScreen />;
+  if (!isSupabaseConfigured) {
+    return (
+      <View style={styles.appRoot}>
+        <SetupScreen />
+      </View>
+    );
+  }
   if (!household) {
     return (
-      <HouseholdScreen
-        pendingNfcInvite={pendingNfcInvite}
-        onHouseholdReady={(nextHousehold) => {
-          setPendingNfcInvite(null);
-          setHousehold(nextHousehold);
-        }}
-      />
+      <View style={styles.appRoot}>
+        <HouseholdScreen
+          pendingNfcInvite={pendingNfcInvite}
+          onHouseholdReady={(nextHousehold) => {
+            setPendingNfcInvite(null);
+            setHousehold(nextHousehold);
+          }}
+        />
+      </View>
     );
   }
 
-  return <ListScreen household={household} onChangeHouse={() => setHousehold(null)} />;
+  return (
+    <View style={styles.appRoot}>
+      <ListScreen household={household} onChangeHouse={() => setHousehold(null)} />
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  appRoot: { flex: 1, minHeight: '100%', backgroundColor: '#071312' },
+});

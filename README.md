@@ -6,7 +6,7 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 
 - Casas compartidas con acceso mediante contraseña.
 - Crear una lista o unirse mediante token NFC.
-- Añadir productos, cantidad y categoría.
+- Añadir productos, cantidad y categorías específicas: fruta, verdura, carne y pescado, lácteos, panadería, congelados, bebidas, despensa, snacks, limpieza, higiene, hogar, mascotas y bebé.
 - Marcar, borrar y limpiar productos completados.
 - Actualización realtime entre todos los móviles del hogar.
 - Rutas NFC desde el selector de casas para abrir una casa directamente.
@@ -31,9 +31,10 @@ Al abrir la app, se muestran únicamente tus casas. Al seleccionar una casa o cr
 7. Ejecuta `supabase/migrations/202608120003_product_images.sql` para activar imágenes compartidas y el bucket de Storage.
 8. Ejecuta `supabase/migrations/202608120004_household_product_catalog.sql` para recordar productos e imágenes por casa.
 9. Ejecuta `supabase/migrations/202608120005_anonymous_house_flow.sql` para activar el flujo sin cuentas.
-10. Comprueba que Realtime está habilitado para `public.shopping_items`.
+10. Ejecuta `supabase/migrations/202608120006_anonymous_product_image_uploads.sql` para permitir fotos desde clientes anónimos y limitar las imágenes a JPEG pequeños.
+11. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
-Las migraciones crean las tablas, índices, funciones seguras, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se recortan desde el selector nativo y se suben a Supabase Storage para que las vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
+Las migraciones crean las tablas, índices, funciones seguras, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage para que la vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
 
 ### Error 404 al crear un hogar (PGRST202)
 
