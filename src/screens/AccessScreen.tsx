@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -48,10 +49,17 @@ export function AccessScreen({ title, subtitle, onAuthorized, onCancel, busy = f
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
       <StatusBar style="light" />
       <View style={styles.glow} />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
       <Animated.View
         style={[
           styles.content,
@@ -131,6 +139,7 @@ export function AccessScreen({ title, subtitle, onAuthorized, onCancel, busy = f
           <Text style={styles.cancelText}>Volver a casas</Text>
         </Pressable>
       </Animated.View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -147,6 +156,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#123c35',
     opacity: 0.55,
   },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   content: {
     flex: 1,
     width: '100%',

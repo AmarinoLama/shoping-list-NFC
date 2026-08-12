@@ -3,6 +3,25 @@
 -- session is needed for the app flow.
 alter table public.households alter column created_by drop not null;
 alter table public.shopping_items alter column created_by drop not null;
+alter table public.shopping_items add column if not exists image_url text;
+
+-- Keep this migration safe to run on projects that skipped the optional image/catalog migrations.
+create table if not exists public.household_products (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households(id) on delete cascade,
+  normalized_name text not null,
+  display_name text not null,
+  image_url text,
+  category text not null default 'Otros',
+  purchase_count integer not null default 0 check (purchase_count >= 0),
+  last_purchased_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (household_id, normalized_name)
+);
+
+insert into storage.buckets (id, name, public)
+values ('product-images', 'product-images', true)
+on conflict (id) do update set public = true;
 
 create or replace function public.get_households()
 returns setof public.households

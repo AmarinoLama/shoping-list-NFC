@@ -6,6 +6,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  ScrollView,
   Platform,
   Pressable,
   StyleSheet,
@@ -345,7 +346,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
       <StatusBar style="light" />
       <AmbientGroceries />
@@ -511,7 +513,17 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         animationType="fade"
         onRequestClose={cancelEditing}
       >
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.editModal}>
             <View style={styles.quantityModalHeader}>
               <View>
@@ -586,7 +598,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               </Pressable>
             </View>
           </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1103,6 +1116,8 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
+  modalScroll: { width: '100%' },
+  modalScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
   quantityModal: {
     width: '100%',
     maxWidth: 390,

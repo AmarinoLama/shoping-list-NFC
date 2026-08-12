@@ -90,7 +90,7 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
       .then(() => joinHouseholdByNfcToken(pendingNfcInvite.token))
       .then(onHouseholdReady)
       .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'No se pudo abrir la casa desde la etiqueta.');
+        setError(friendlyHouseholdError(caught, 'No se pudo abrir la casa desde la etiqueta.'));
       })
       .finally(() => setBusy(false));
   }, [pendingNfcInvite, authorizationGranted, onHouseholdReady]);
@@ -101,7 +101,7 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
       setHouseholds(await getMyHouseholds());
       setError(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No se pudieron cargar tus casas.');
+      setError(friendlyHouseholdError(caught, 'No se pudieron cargar tus casas.'));
     } finally {
       setLoading(false);
     }
@@ -146,7 +146,7 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
       }
     } catch (caught) {
       setAccessAction(null);
-      setError(caught instanceof Error ? caught.message : 'No se pudo abrir esta casa.');
+      setError(friendlyHouseholdError(caught, 'No se pudo abrir esta casa.'));
     } finally {
       setBusy(false);
     }
@@ -177,7 +177,7 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
     try {
       onHouseholdReady(await createHousehold(name));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No se pudo crear la casa.');
+      setError(friendlyHouseholdError(caught, 'No se pudo crear la casa.'));
     } finally {
       setBusy(false);
     }
@@ -210,7 +210,8 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
     return (
       <KeyboardAvoidingView
         style={styles.screen}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <StatusBar style="light" />
         <View style={styles.glow} />
@@ -268,7 +269,8 @@ export function HouseholdScreen({ pendingNfcInvite, onHouseholdReady }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
     >
       <StatusBar style="light" />
       <View style={styles.glow} />
@@ -423,6 +425,21 @@ function AnimatedHouseholdCard({ children, delay }: { children: React.ReactNode;
       {children}
     </Animated.View>
   );
+}
+
+function friendlyHouseholdError(caught: unknown, fallback: string): string {
+  const message = caught instanceof Error ? caught.message : String(caught ?? '');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('you must be signed in') || normalized.includes('jwt') || normalized.includes('auth')) {
+    return 'Supabase sigue usando el flujo antiguo con usuarios. Ejecuta la migración 202608120005_anonymous_house_flow.sql en el SQL Editor y vuelve a probar.';
+  }
+  if (normalized.includes('pgrst202') || normalized.includes('could not find the function')) {
+    return 'Falta la función anónima de casas en Supabase. Ejecuta la migración 202608120005_anonymous_house_flow.sql.';
+  }
+  if (normalized.includes('permission denied') || normalized.includes('row-level security') || normalized.includes('rls')) {
+    return 'Supabase ha bloqueado la operación. Ejecuta la migración 202608120005_anonymous_house_flow.sql para actualizar los permisos.';
+  }
+  return message || fallback;
 }
 
 function ErrorBox({ message }: { message: string }) {
