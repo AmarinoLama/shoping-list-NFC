@@ -601,9 +601,17 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             </Pressable>
           ) : null}
           <Pressable style={styles.itemMain} onPress={() => void toggleItem(item)}>
-            <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
-              {item.name}
-            </Text>
+            <View style={styles.itemTitleRow}>
+              <Text
+                numberOfLines={1}
+                style={[styles.itemName, item.is_completed && styles.itemNameDone]}
+              >
+                {item.name}
+              </Text>
+              <View style={styles.quantityBadge}>
+                <Text style={styles.quantityBadgeText}>{item.quantity}</Text>
+              </View>
+            </View>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
@@ -1699,11 +1707,14 @@ const styles = StyleSheet.create({
   },
   checkboxDone: { borderColor: COLORS.lime, backgroundColor: COLORS.lime },
   itemMain: { flex: 1, minWidth: 0 },
+  itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
   itemImageButton: { position: 'relative', width: 44, height: 44, marginRight: 10, borderRadius: 12 },
   itemImage: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#f4f6f1' },
   itemImageZoomBadge: { position: 'absolute', right: -3, bottom: -3, alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.lime },
-  itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
+  itemName: { flex: 1, color: COLORS.textSoft, fontSize: 15, fontWeight: '800' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
+  quantityBadge: { minWidth: 27, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8, backgroundColor: '#173a32' },
+  quantityBadgeText: { color: COLORS.limeDeep, fontSize: 12, fontWeight: '900', textAlign: 'center' },
   editButton: { padding: 7 },
   deleteButton: { padding: 7 },
   deletePressed: { opacity: 0.5 },
