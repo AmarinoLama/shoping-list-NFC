@@ -112,6 +112,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const catalogSearchRequest = useRef(0);
+  const quantityListRef = useRef<FlatList<string> | null>(null);
 
   const headerIn = useRef(new Animated.Value(0)).current;
   const progressMotion = useRef(new Animated.Value(0)).current;
@@ -198,6 +199,15 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       useNativeDriver: false,
     }).start();
   }, [progress, progressMotion]);
+
+  useEffect(() => {
+    if (quantityPickerTarget === null) return;
+    const index = Math.max(0, Math.min(QUANTITY_OPTIONS.length - 1, Number(pickerQuantity) - 1));
+    const timeout = setTimeout(() => {
+      quantityListRef.current?.scrollToOffset({ offset: index * QUANTITY_ITEM_HEIGHT, animated: false });
+    }, 40);
+    return () => clearTimeout(timeout);
+  }, [quantityPickerTarget]);
 
   useEffect(() => {
     const requestId = ++catalogSearchRequest.current;
@@ -1210,7 +1220,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 contentContainerStyle={styles.wheelContent}
                 data={QUANTITY_OPTIONS}
                 keyExtractor={(value) => value}
-                initialScrollIndex={Math.max(0, Math.min(QUANTITY_OPTIONS.length - 1, Number(pickerQuantity) - 1))}
+                ref={quantityListRef}
                 getItemLayout={(_, index) => ({
                   length: QUANTITY_ITEM_HEIGHT,
                   offset: QUANTITY_ITEM_HEIGHT * index,
@@ -1219,6 +1229,14 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 snapToInterval={QUANTITY_ITEM_HEIGHT}
                 decelerationRate="fast"
                 showsVerticalScrollIndicator={false}
+                onScrollEndDrag={({ nativeEvent }) => {
+                  const index = Math.min(
+                    QUANTITY_OPTIONS.length - 1,
+                    Math.max(0, Math.round(nativeEvent.contentOffset.y / QUANTITY_ITEM_HEIGHT)),
+                  );
+                  if (quantityPickerTarget === 'edit') setEditQuantity(QUANTITY_OPTIONS[index]);
+                  else setQuantity(QUANTITY_OPTIONS[index]);
+                }}
                 onMomentumScrollEnd={({ nativeEvent }) => {
                   const index = Math.min(
                     QUANTITY_OPTIONS.length - 1,
@@ -1231,6 +1249,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                   <Pressable
                     style={styles.wheelItem}
                     onPress={() => {
+                      const index = Number(option) - 1;
+                      quantityListRef.current?.scrollToOffset({ offset: index * QUANTITY_ITEM_HEIGHT, animated: true });
                       if (quantityPickerTarget === 'edit') setEditQuantity(option);
                       else setQuantity(option);
                     }}
@@ -1246,11 +1266,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               <View pointerEvents="none" style={styles.wheelSelection} />
             </View>
             <Text style={styles.quantityUnitLabel}>UNIDAD</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.quantityUnitsRow}
-            >
+            <View style={styles.quantityUnitsGrid}>
               {QUANTITY_UNIT_OPTIONS.map((option) => (
                 <Pressable
                   key={option.value}
@@ -1267,7 +1283,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                   </Text>
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
             <TextInput
               style={styles.quantityUnitInput}
               value={pickerUnit === 'unidades' || QUANTITY_UNIT_OPTIONS.some((option) => option.value === pickerUnit) ? '' : pickerUnit}
@@ -1277,6 +1293,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               }}
               placeholder="Otra unidad (ej. porciones)"
               placeholderTextColor={COLORS.mutedDeep}
+              returnKeyType="done"
               maxLength={18}
               accessibilityLabel="Escribir otra unidad"
             />
@@ -1904,7 +1921,7 @@ const styles = StyleSheet.create({
   wheelTextActive: { color: COLORS.lime, fontSize: 29, fontWeight: '900' },
   wheelSelection: { position: 'absolute', top: 96, left: 12, right: 12, height: QUANTITY_ITEM_HEIGHT, borderWidth: 1, borderColor: COLORS.lime, borderRadius: 12, backgroundColor: 'rgba(167,243,106,0.08)' },
   quantityUnitLabel: { marginTop: 16, color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
-  quantityUnitsRow: { gap: 7, paddingVertical: 9 },
+  quantityUnitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 9 },
   quantityUnitChip: { paddingHorizontal: 11, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, backgroundColor: COLORS.panelDeep },
   quantityUnitChipActive: { borderColor: COLORS.lime, backgroundColor: '#183323' },
   quantityUnitText: { color: COLORS.muted, fontSize: 11, fontWeight: '800' },
