@@ -22,6 +22,17 @@ create table if not exists public.households (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.household_categories (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households(id) on delete cascade,
+  name text not null check (char_length(trim(name)) between 1 and 40),
+  emoji text not null default '🏷️',
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists household_categories_name_idx
+  on public.household_categories(household_id, lower(name));
+
 create table if not exists public.household_members (
   household_id uuid not null references public.households(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -96,6 +107,8 @@ alter table public.shopping_items add column if not exists image_url text;
 
 create index if not exists household_members_user_id_idx
   on public.household_members(user_id);
+create index if not exists household_categories_household_id_idx
+  on public.household_categories(household_id);
 create index if not exists shopping_items_household_id_idx
   on public.shopping_items(household_id);
 create index if not exists shopping_items_pending_idx
@@ -160,6 +173,71 @@ $$;
 -- ---------------------------------------------------------------------------
 -- RPC API used by the app
 -- ---------------------------------------------------------------------------
+
+create or replace function public.rename_household_category(
+  target_category_id uuid,
+  category_name text
+)
+returns public.household_categories
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_category public.household_categories;
+  updated_category public.household_categories;
+begin
+  if char_length(trim(category_name)) < 1 then
+    raise exception 'Category name cannot be empty';
+  end if;
+
+  select * into current_category
+  from public.household_categories
+  where id = target_category_id;
+
+  if current_category.id is null then
+    raise exception 'Category not found';
+  end if;
+
+  update public.household_categories
+  set name = trim(category_name)
+  where id = target_category_id
+  returning * into updated_category;
+
+  update public.shopping_items
+  set category = updated_category.name
+  where household_id = current_category.household_id
+    and category = current_category.name;
+
+  return updated_category;
+end;
+$$;
+
+create or replace function public.delete_household_category(target_category_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_category public.household_categories;
+begin
+  select * into current_category
+  from public.household_categories
+  where id = target_category_id;
+
+  if current_category.id is null then
+    raise exception 'Category not found';
+  end if;
+
+  update public.shopping_items
+  set category = 'Sin categoría'
+  where household_id = current_category.household_id
+    and category = current_category.name;
+
+  delete from public.household_categories where id = target_category_id;
+end;
+$$;
 
 create or replace function public.get_households()
 returns setof public.households
@@ -271,6 +349,7 @@ $$;
 -- ---------------------------------------------------------------------------
 
 alter table public.households enable row level security;
+alter table public.household_categories enable row level security;
 alter table public.household_members enable row level security;
 alter table public.shopping_items enable row level security;
 alter table public.household_products enable row level security;
@@ -282,6 +361,30 @@ drop policy if exists "Members can view their households" on public.households;
 drop policy if exists "Anyone can view households" on public.households;
 create policy "Anyone can view households"
 on public.households for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Anyone can view household categories" on public.household_categories;
+drop policy if exists "Anyone can add household categories" on public.household_categories;
+drop policy if exists "Anyone can update household categories" on public.household_categories;
+drop policy if exists "Anyone can delete household categories" on public.household_categories;
+create policy "Anyone can view household categories"
+on public.household_categories for select
+to anon, authenticated
+using (true);
+create policy "Anyone can add household categories"
+on public.household_categories for insert
+to anon, authenticated
+with check (exists (
+  select 1 from public.households h where h.id = household_id
+));
+create policy "Anyone can update household categories"
+on public.household_categories for update
+to anon, authenticated
+using (true)
+with check (true);
+create policy "Anyone can delete household categories"
+on public.household_categories for delete
 to anon, authenticated
 using (true);
 
@@ -358,6 +461,7 @@ with check (true);
 -- Supabase requires table privileges in addition to RLS policies.
 grant usage on schema public to anon, authenticated;
 grant select on public.households to anon, authenticated;
+grant select, insert, update, delete on public.household_categories to anon, authenticated;
 grant select, insert, update, delete on public.shopping_items to anon, authenticated;
 grant select, insert, update on public.household_products to anon, authenticated;
 grant select, insert, update on public.product_catalog to anon, authenticated;
@@ -365,6 +469,11 @@ revoke all on public.household_members from anon, authenticated;
 
 revoke all on function public.is_household_member(uuid) from public;
 grant execute on function public.is_household_member(uuid) to authenticated;
+
+revoke all on function public.rename_household_category(uuid, text) from public;
+revoke all on function public.delete_household_category(uuid) from public;
+grant execute on function public.rename_household_category(uuid, text) to anon, authenticated;
+grant execute on function public.delete_household_category(uuid) to anon, authenticated;
 
 revoke all on function public.get_households() from public;
 revoke all on function public.create_household(text) from public;

@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { getAppBaseUrl } from './app-url';
 import { HOUSEHOLD_AUTHORIZATION_PASSWORD } from './authorization';
-import type { Household, ItemCategory, ProductCatalogEntry, ShoppingItem } from '../types';
+import type { Household, HouseholdCategory, ProductCatalogEntry, ShoppingItem } from '../types';
 
 export async function getMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase.rpc('get_households');
@@ -50,6 +50,42 @@ export function normalizeProductName(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+export async function getHouseholdCategories(householdId: string): Promise<HouseholdCategory[]> {
+  const { data, error } = await supabase
+    .from('household_categories')
+    .select('*')
+    .eq('household_id', householdId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as HouseholdCategory[];
+}
+
+export async function createHouseholdCategory(householdId: string, name: string): Promise<HouseholdCategory> {
+  const { data, error } = await supabase
+    .from('household_categories')
+    .insert({ household_id: householdId, name: name.trim(), emoji: '🏷️' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as HouseholdCategory;
+}
+
+export async function updateHouseholdCategory(id: string, name: string): Promise<HouseholdCategory> {
+  const { data, error } = await supabase.rpc('rename_household_category', {
+    target_category_id: id,
+    category_name: name.trim(),
+  });
+  if (error) throw error;
+  return data as HouseholdCategory;
+}
+
+export async function deleteHouseholdCategory(id: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_household_category', {
+    target_category_id: id,
+  });
+  if (error) throw error;
+}
+
 export async function searchProductCatalog(name: string): Promise<ProductCatalogEntry[]> {
   const normalizedName = normalizeProductName(name);
   if (normalizedName.length < 2) return [];
@@ -66,7 +102,7 @@ export async function searchProductCatalog(name: string): Promise<ProductCatalog
 
 export async function rememberProductCatalog(input: {
   name: string;
-  category: ItemCategory;
+  category: string;
 }): Promise<ProductCatalogEntry> {
   const normalizedName = normalizeProductName(input.name);
   const { data: existing, error: lookupError } = await supabase
@@ -110,7 +146,7 @@ export async function addShoppingItem(input: {
   householdId: string;
   name: string;
   quantity: string;
-  category: ItemCategory;
+  category: string;
   imageUrl?: string | null;
 }): Promise<ShoppingItem> {
   const { data, error } = await supabase
@@ -132,7 +168,7 @@ export async function updateShoppingItem(input: {
   id: string;
   name: string;
   quantity: string;
-  category: ItemCategory;
+  category: string;
   imageUrl?: string | null;
 }): Promise<ShoppingItem> {
   const { data, error } = await supabase

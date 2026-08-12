@@ -21,19 +21,21 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   addShoppingItem,
   clearCompletedItems,
+  createHouseholdCategory,
+  deleteHouseholdCategory,
   deleteShoppingItem,
+  getHouseholdCategories,
   getShoppingItems,
-  normalizeProductName,
   rememberProductCatalog,
   searchProductCatalog,
   setItemCompleted,
   subscribeToShoppingItems,
+  updateHouseholdCategory,
   updateShoppingItem,
 } from '../lib/shopping';
-import { deleteProductImage, searchProductImages, uploadProductImage, type ProductImageCandidate } from '../lib/product-images';
+import { deleteProductImage, uploadProductImage } from '../lib/product-images';
 import { CATEGORY_META, COLORS } from '../lib/ui';
-import type { Household, ItemCategory, ProductCatalogEntry, ShoppingItem } from '../types';
-import { ITEM_CATEGORIES } from '../types';
+import type { Household, HouseholdCategory, ItemCategory, ProductCatalogEntry, ShoppingItem } from '../types';
 
 type Props = {
   household: Household;
@@ -57,7 +59,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
-  const [category, setCategory] = useState<ItemCategory>('Despensa');
+  const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -67,15 +69,22 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editQuantity, setEditQuantity] = useState('1');
-  const [editCategory, setEditCategory] = useState<ItemCategory>('Despensa');
+  const [editCategory, setEditCategory] = useState('');
   const [quantityPickerTarget, setQuantityPickerTarget] = useState<'new' | 'edit' | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [catalogSuggestions, setCatalogSuggestions] = useState<ProductCatalogEntry[]>([]);
-  const [imageCandidates, setImageCandidates] = useState<ProductImageCandidate[]>([]);
-  const [imageSearchBusy, setImageSearchBusy] = useState(false);
+  const [catalogSearchBusy, setCatalogSearchBusy] = useState(false);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
-  const imageSearchRequest = useRef(0);
+  const [householdCategories, setHouseholdCategories] = useState<HouseholdCategory[]>([]);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<HouseholdCategory | null>(null);
+  const [categoryName, setCategoryName] = useState('');
+  const [confirmingCategoryDelete, setConfirmingCategoryDelete] = useState(false);
+  const [categoryBusy, setCategoryBusy] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const catalogSearchRequest = useRef(0);
 
   const headerIn = useRef(new Animated.Value(0)).current;
   const progressMotion = useRef(new Animated.Value(0)).current;
@@ -86,7 +95,15 @@ export function ListScreen({ household, onChangeHouse }: Props) {
 
   async function refresh(): Promise<void> {
     try {
-      setItems(await getShoppingItems(household.id));
+      const [loadedItems, loadedCategories] = await Promise.all([
+        getShoppingItems(household.id),
+        getHouseholdCategories(household.id),
+      ]);
+      setItems(loadedItems);
+      setHouseholdCategories(loadedCategories);
+      setCategory((current) => loadedCategories.some((option) => option.name === current)
+        ? current
+        : loadedCategories[0]?.name ?? '');
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No se pudo actualizar la lista.');
@@ -120,8 +137,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     });
 
     const orderedCategories = [
-      ...ITEM_CATEGORIES,
-      ...Array.from(groups.keys()).filter((category) => !(ITEM_CATEGORIES as readonly string[]).includes(category)),
+      ...householdCategories.map((option) => option.name),
+      ...Array.from(groups.keys()).filter((category) => !householdCategories.some((option) => option.name === category)),
     ];
     return orderedCategories.flatMap((category) => {
       const categoryItems = groups.get(category);
@@ -132,7 +149,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         pendingCount: categoryItems.filter((item) => !item.is_completed).length,
       }];
     });
-  }, [visibleItems]);
+  }, [visibleItems, householdCategories]);
 
   const pendingCount = items.filter((item) => !item.is_completed).length;
   const completedCount = items.length - pendingCount;
@@ -148,41 +165,25 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   }, [progress, progressMotion]);
 
   useEffect(() => {
-    const requestId = ++imageSearchRequest.current;
+    const requestId = ++catalogSearchRequest.current;
     const query = name.trim();
     setCatalogSuggestions([]);
     if (query.length < 2) {
-      setImageCandidates([]);
-      setImageSearchBusy(false);
+      setCatalogSearchBusy(false);
       return;
     }
     const timeout = setTimeout(() => {
-      setImageSearchBusy(true);
-      void (async () => {
-        try {
-          const suggestions = await searchProductCatalog(query).catch(() => []);
-          if (imageSearchRequest.current !== requestId) return;
-          setCatalogSuggestions(suggestions);
-          const exactMatch = suggestions.find(
-            (suggestion) => suggestion.normalized_name === normalizeProductName(query),
-          );
-          if (exactMatch?.image_url) {
-            setSelectedImageUrl(exactMatch.image_url);
-            setImageCandidates([
-              {
-                url: exactMatch.image_url,
-                productName: exactMatch.display_name,
-                source: 'saved',
-              },
-            ]);
-            return;
-          }
-          const results = await searchProductImages(query);
-          if (imageSearchRequest.current === requestId) setImageCandidates(results);
-        } finally {
-          if (imageSearchRequest.current === requestId) setImageSearchBusy(false);
-        }
-      })();
+      setCatalogSearchBusy(true);
+      void searchProductCatalog(query)
+        .then((suggestions) => {
+          if (catalogSearchRequest.current === requestId) setCatalogSuggestions(suggestions);
+        })
+        .catch(() => {
+          // El autocompletado es opcional y no debe bloquear la creación del producto.
+        })
+        .finally(() => {
+          if (catalogSearchRequest.current === requestId) setCatalogSearchBusy(false);
+        });
     }, 450);
     return () => clearTimeout(timeout);
   }, [name]);
@@ -191,7 +192,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     setEditingItem(item);
     setEditName(item.name);
     setEditQuantity(item.quantity || '1');
-    setEditCategory((ITEM_CATEGORIES as readonly string[]).includes(item.category) ? item.category as ItemCategory : 'Otros');
+    setEditCategory(item.category);
     setError(null);
   }
 
@@ -228,21 +229,79 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   function changeProductName(value: string): void {
     setName(value);
     setSelectedImageUrl(null);
-    setImageCandidates([]);
   }
 
   function applyCatalogSuggestion(suggestion: ProductCatalogEntry): void {
     setName(suggestion.display_name);
-    if ((ITEM_CATEGORIES as readonly string[]).includes(suggestion.category)) {
-      setCategory(suggestion.category as ItemCategory);
+    if (householdCategories.some((option) => option.name === suggestion.category)) {
+      setCategory(suggestion.category);
     }
-    setSelectedImageUrl(suggestion.image_url);
+    setSelectedImageUrl(null);
     setCatalogSuggestions([]);
-    setImageCandidates(suggestion.image_url ? [{
-      url: suggestion.image_url,
-      productName: suggestion.display_name,
-      source: 'saved',
-    }] : []);
+  }
+
+  function openCreateCategory(): void {
+    setEditingCategory(null);
+    setCategoryName('');
+    setConfirmingCategoryDelete(false);
+    setCategoryError(null);
+    setCategoryModalVisible(true);
+  }
+
+  function openEditCategory(categoryValue: string): void {
+    const storedCategory = householdCategories.find((option) => option.name === categoryValue);
+    if (!storedCategory) {
+      setError('Esta categoría pertenece a un producto antiguo. Crea una categoría con este nombre para gestionarla.');
+      return;
+    }
+    setEditingCategory(storedCategory);
+    setCategoryName(storedCategory.name);
+    setConfirmingCategoryDelete(false);
+    setCategoryError(null);
+    setCategoryModalVisible(true);
+  }
+
+  async function saveCategory(): Promise<void> {
+    if (!categoryName.trim()) {
+      setCategoryError('Escribe el nombre de la categoría.');
+      return;
+    }
+    setCategoryBusy(true);
+    setCategoryError(null);
+    try {
+      const saved = editingCategory
+        ? await updateHouseholdCategory(editingCategory.id, categoryName)
+        : await createHouseholdCategory(household.id, categoryName);
+      setHouseholdCategories((current) => editingCategory
+        ? current.map((option) => option.id === saved.id ? saved : option)
+        : [...current, saved]);
+      setCategory((current) => editingCategory?.name === current ? saved.name : current || saved.name);
+      setEditCategory((current) => editingCategory?.name === current ? saved.name : current);
+      setCategoryModalVisible(false);
+    } catch (caught) {
+      setCategoryError(caught instanceof Error ? caught.message : 'No se pudo guardar la categoría.');
+    } finally {
+      setCategoryBusy(false);
+    }
+  }
+
+  async function removeCategory(): Promise<void> {
+    if (!editingCategory) return;
+    setCategoryBusy(true);
+    setCategoryError(null);
+    try {
+      await deleteHouseholdCategory(editingCategory.id);
+      setHouseholdCategories((current) => current.filter((option) => option.id !== editingCategory.id));
+      setItems((current) => current.map((item) => item.category === editingCategory.name
+        ? { ...item, category: 'Sin categoría' }
+        : item));
+      setCategory((current) => current === editingCategory.name ? '' : current);
+      setCategoryModalVisible(false);
+    } catch (caught) {
+      setCategoryError(caught instanceof Error ? caught.message : 'No se pudo borrar la categoría.');
+    } finally {
+      setCategoryBusy(false);
+    }
   }
 
   async function takeProductPhoto(): Promise<void> {
@@ -301,6 +360,10 @@ export function ListScreen({ household, onChangeHouse }: Props) {
 
   async function addItem(): Promise<void> {
     if (!name.trim()) return;
+    if (!category) {
+      setError('Crea y selecciona una categoría antes de añadir el producto.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -315,7 +378,6 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       setName('');
       setQuantity('1');
       setSelectedImageUrl(null);
-      setImageCandidates([]);
       try {
         await rememberProductCatalog({
           name,
@@ -431,6 +493,14 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               color={COLORS.muted}
             />
           </Pressable>
+          <Pressable
+            style={styles.categoryManageButton}
+            onPress={() => openEditCategory(group.category)}
+            accessibilityRole="button"
+            accessibilityLabel={`Editar o borrar la categoría ${group.category}`}
+          >
+            <MaterialCommunityIcons name="pencil-outline" size={15} color={COLORS.cyan} />
+          </Pressable>
           {group.pendingCount ? (
             <Pressable
               style={styles.categorySelectButton}
@@ -457,17 +527,25 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       <AnimatedRow>
         <View style={[styles.itemRow, item.is_completed && styles.itemCompleted]}>
           <FunCheckbox checked={item.is_completed} onPress={() => void toggleItem(item)} />
+          {item.image_url ? (
+            <Pressable
+              style={styles.itemImageButton}
+              onPress={() => setPreviewImageUrl(item.image_url)}
+              accessibilityRole="button"
+              accessibilityLabel={`Ampliar foto de ${item.name}`}
+            >
+              <Image source={{ uri: item.image_url }} style={styles.itemImage} />
+              <View style={styles.itemImageZoomBadge}>
+                <MaterialCommunityIcons name="magnify-plus-outline" size={12} color={COLORS.bg} />
+              </View>
+            </Pressable>
+          ) : (
+            <Text style={styles.itemEmoji}>{meta.emoji}</Text>
+          )}
           <Pressable style={styles.itemMain} onPress={() => void toggleItem(item)}>
-            <View style={styles.itemNameRow}>
-              {item.image_url ? (
-                <Image source={{ uri: item.image_url }} style={styles.itemImage} />
-              ) : (
-                <Text style={styles.itemEmoji}>{meta.emoji}</Text>
-              )}
-              <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
-                {item.name}
-              </Text>
-            </View>
+            <Text style={[styles.itemName, item.is_completed && styles.itemNameDone]}>
+              {item.name}
+            </Text>
             <Text style={styles.itemMeta}>
               {item.quantity} · {item.category}
             </Text>
@@ -595,9 +673,9 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               <MaterialCommunityIcons name="image-outline" size={21} color={COLORS.cyan} />
             </Pressable>
             <Pressable
-            style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+            style={({ pressed }) => [styles.addButton, !category && styles.addButtonDisabled, pressed && styles.addButtonPressed]}
             onPress={() => void addItem()}
-            disabled={busy}
+            disabled={busy || !category}
             accessibilityLabel="Añadir producto"
           >
             {busy ? (
@@ -622,11 +700,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 accessibilityLabel={`Autocompletar ${suggestion.display_name}`}
               >
                 <View style={styles.catalogSuggestionIcon}>
-                  {suggestion.image_url ? (
-                    <Image source={{ uri: suggestion.image_url }} style={styles.catalogSuggestionImage} />
-                  ) : (
-                    <MaterialCommunityIcons name="cart-outline" size={17} color={COLORS.cyan} />
-                  )}
+                  <MaterialCommunityIcons name="cart-outline" size={17} color={COLORS.cyan} />
                 </View>
                 <View style={styles.catalogSuggestionCopy}>
                   <Text style={styles.catalogSuggestionName}>{suggestion.display_name}</Text>
@@ -639,37 +713,11 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             ))}
           </View>
         ) : null}
-        {imageSearchBusy ? (
-          <View style={styles.imageSearchStatus}>
+        {catalogSearchBusy ? (
+          <View style={styles.catalogSearchStatus}>
             <ActivityIndicator color={COLORS.cyan} size="small" />
-            <Text style={styles.imageSearchText}>Buscando imágenes de {name.trim()}…</Text>
+            <Text style={styles.catalogSearchText}>Buscando productos guardados…</Text>
           </View>
-        ) : null}
-        {imageCandidates.length ? (
-          <FlatList
-            horizontal
-            data={imageCandidates}
-            keyExtractor={(candidate) => candidate.url}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.imageCandidates}
-            renderItem={({ item: candidate }) => (
-              <Pressable
-                style={[styles.imageCandidate, selectedImageUrl === candidate.url && styles.imageCandidateSelected]}
-                onPress={() => setSelectedImageUrl(candidate.url)}
-                accessibilityLabel={`Usar imagen de ${candidate.productName}`}
-              >
-                <Image source={{ uri: candidate.url }} style={styles.candidateImage} />
-                {selectedImageUrl === candidate.url ? (
-                  <View style={styles.imageSelectedBadge}>
-                    <MaterialCommunityIcons name="check" size={13} color={COLORS.bg} />
-                  </View>
-                ) : null}
-                <Text numberOfLines={1} style={styles.candidateLabel}>
-                  {candidate.source === 'transparent' ? 'Sin fondo' : candidate.source === 'saved' ? 'Guardada' : candidate.productName}
-                </Text>
-              </Pressable>
-            )}
-          />
         ) : null}
         {selectedImageUrl ? (
           <View style={styles.selectedImageRow}>
@@ -680,28 +728,155 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             </Pressable>
           </View>
         ) : null}
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryRow}
-          data={ITEM_CATEGORIES}
-          keyExtractor={(value) => value}
-          renderItem={({ item: option }) => {
-            const active = category === option;
-            return (
-              <Pressable
-                style={[styles.categoryChip, active && styles.categoryChipActive]}
-                onPress={() => setCategory(option)}
-              >
-                <Text style={styles.categoryEmoji}>{CATEGORY_META[option].emoji}</Text>
-                <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
-                  {option}
-                </Text>
-              </Pressable>
-            );
-          }}
-        />
+        <View style={styles.categoryInfoCard}>
+          <View style={styles.categoryInfoCopy}>
+            <MaterialCommunityIcons name="information-outline" size={17} color={COLORS.cyan} />
+            <Text style={styles.categoryInfoText}>
+              Las categorías son exclusivas de esta casa. Tienes que crearlas a mano; pulsa el lápiz de una categoría para cambiarla o borrarla.
+            </Text>
+          </View>
+          <Pressable
+            style={styles.manageCategoriesButton}
+            onPress={openCreateCategory}
+            accessibilityRole="button"
+            accessibilityLabel="Crear una categoría para esta casa"
+          >
+            <MaterialCommunityIcons name="plus" size={16} color={COLORS.lime} />
+            <Text style={styles.manageCategoriesText}>Crear categoría</Text>
+          </Pressable>
+        </View>
+        {householdCategories.length ? (
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryRow}
+            data={householdCategories}
+            keyExtractor={(option) => option.id}
+            renderItem={({ item: option }) => {
+              const active = category === option.name;
+              const emoji = CATEGORY_META[option.name as ItemCategory]?.emoji ?? option.emoji;
+              return (
+                <Pressable
+                  style={[styles.categoryChip, active && styles.categoryChipActive]}
+                  onPress={() => setCategory(option.name)}
+                >
+                  <Text style={styles.categoryEmoji}>{emoji}</Text>
+                  <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
+                    {option.name}
+                  </Text>
+                </Pressable>
+              );
+            }}
+          />
+        ) : (
+          <Text style={styles.noCategoriesText}>Aún no hay categorías. Crea la primera para poder añadir productos.</Text>
+        )}
       </View>
+
+      <Modal
+        visible={categoryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCategoryModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <View style={styles.categoryModal}>
+            <View style={styles.quantityModalHeader}>
+              <View>
+                <Text style={styles.quantityModalEyebrow}>CATEGORÍAS DE LA CASA</Text>
+                <Text style={styles.quantityModalTitle}>{editingCategory ? 'Cambiar categoría' : 'Nueva categoría'}</Text>
+              </View>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setCategoryModalVisible(false)}
+                accessibilityLabel="Cerrar categorías"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            {confirmingCategoryDelete && editingCategory ? (
+              <View style={styles.categoryDeleteConfirm}>
+                <MaterialCommunityIcons name="alert-outline" size={27} color={COLORS.danger} />
+                <Text style={styles.categoryDeleteTitle}>¿Borrar “{editingCategory.name}”?</Text>
+                <Text style={styles.categoryDeleteText}>
+                  Los productos que la usan pasarán a “Sin categoría”. Esta acción no se puede deshacer.
+                </Text>
+                {categoryError ? <Text style={styles.categoryModalError}>{categoryError}</Text> : null}
+                <View style={styles.categoryModalActions}>
+                  <Pressable
+                    style={styles.cancelEditButton}
+                    onPress={() => setConfirmingCategoryDelete(false)}
+                    disabled={categoryBusy}
+                  >
+                    <Text style={styles.cancelEditText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.deleteCategoryButton}
+                    onPress={() => void removeCategory()}
+                    disabled={categoryBusy}
+                  >
+                    {categoryBusy ? <ActivityIndicator color={COLORS.text} size="small" /> : <>
+                      <Text style={styles.deleteCategoryText}>Borrar</Text>
+                      <MaterialCommunityIcons name="trash-can-outline" size={17} color={COLORS.text} />
+                    </>}
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.categoryModalHint}>
+                  Escribe tú mismo el nombre. Después podrás pulsar esta categoría para volver a editarla o borrarla.
+                </Text>
+                <Text style={styles.editLabel}>NOMBRE</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={categoryName}
+                  onChangeText={setCategoryName}
+                  autoFocus
+                  placeholder="Ej. Desayunos"
+                  placeholderTextColor={COLORS.mutedDeep}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void saveCategory()}
+                />
+                {categoryError ? <Text style={styles.categoryModalError}>{categoryError}</Text> : null}
+                <View style={styles.categoryModalActions}>
+                  <Pressable
+                    style={styles.cancelEditButton}
+                    onPress={() => setCategoryModalVisible(false)}
+                    disabled={categoryBusy}
+                  >
+                    <Text style={styles.cancelEditText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.saveEditButton}
+                    onPress={() => void saveCategory()}
+                    disabled={categoryBusy}
+                  >
+                    {categoryBusy ? <ActivityIndicator color={COLORS.bg} size="small" /> : <>
+                      <Text style={styles.confirmQuantityText}>Guardar</Text>
+                      <MaterialCommunityIcons name="check" size={18} color={COLORS.bg} />
+                    </>}
+                  </Pressable>
+                </View>
+                {editingCategory ? (
+                  <Pressable
+                    style={styles.deleteCategoryOutlineButton}
+                    onPress={() => setConfirmingCategoryDelete(true)}
+                    disabled={categoryBusy}
+                  >
+                    <MaterialCommunityIcons name="trash-can-outline" size={17} color={COLORS.danger} />
+                    <Text style={styles.deleteCategoryOutlineText}>Borrar categoría</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={editingItem !== null && quantityPickerTarget !== 'edit'}
@@ -758,20 +933,21 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             <Text style={styles.editLabel}>CATEGORÍA</Text>
             <FlatList
               horizontal
-              data={ITEM_CATEGORIES}
-              keyExtractor={(value) => value}
+              data={householdCategories}
+              keyExtractor={(option) => option.id}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.editCategories}
               renderItem={({ item: option }) => {
-                const active = editCategory === option;
+                const active = editCategory === option.name;
+                const emoji = CATEGORY_META[option.name as ItemCategory]?.emoji ?? option.emoji;
                 return (
                   <Pressable
                     style={[styles.categoryChip, active && styles.categoryChipActive]}
-                    onPress={() => setEditCategory(option)}
+                    onPress={() => setEditCategory(option.name)}
                   >
-                    <Text style={styles.categoryEmoji}>{CATEGORY_META[option].emoji}</Text>
+                    <Text style={styles.categoryEmoji}>{emoji}</Text>
                     <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
-                      {option}
+                      {option.name}
                     </Text>
                   </Pressable>
                 );
@@ -869,6 +1045,36 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               </Text>
               <MaterialCommunityIcons name="check" size={19} color={COLORS.bg} />
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={previewImageUrl !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUrl(null)}
+      >
+        <View style={styles.imagePreviewBackdrop}>
+          <View style={styles.imagePreviewPanel}>
+            <View style={styles.imagePreviewHeader}>
+              <Text style={styles.imagePreviewTitle}>Foto del producto</Text>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setPreviewImageUrl(null)}
+                accessibilityLabel="Cerrar foto ampliada"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            {previewImageUrl ? (
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={styles.imagePreviewImage}
+                resizeMode="contain"
+              />
+            ) : null}
+            <Text style={styles.imagePreviewHint}>Pulsa la X para cerrar</Text>
           </View>
         </View>
       </Modal>
@@ -1203,7 +1409,6 @@ const styles = StyleSheet.create({
   catalogSuggestionLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
   catalogSuggestion: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 49, paddingVertical: 5, borderTopWidth: 1, borderTopColor: COLORS.line },
   catalogSuggestionIcon: { alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 10, backgroundColor: '#143331', overflow: 'hidden' },
-  catalogSuggestionImage: { width: '100%', height: '100%', backgroundColor: '#f4f6f1' },
   catalogSuggestionCopy: { flex: 1, minWidth: 0 },
   catalogSuggestionName: { color: COLORS.textSoft, fontSize: 13, fontWeight: '800' },
   catalogSuggestionMeta: { marginTop: 2, color: COLORS.mutedDeep, fontSize: 10 },
@@ -1244,16 +1449,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lime,
   },
   addButtonPressed: { opacity: 0.8, transform: [{ scale: 0.94 }] },
-  imageSearchStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 10, paddingHorizontal: 2 },
-  imageSearchText: { color: COLORS.muted, fontSize: 11 },
-  imageCandidates: { gap: 8, paddingTop: 10, paddingBottom: 2 },
-  imageCandidate: { position: 'relative', width: 74, paddingBottom: 3, borderWidth: 1, borderColor: COLORS.line, borderRadius: 12, backgroundColor: COLORS.panelDeep, overflow: 'hidden' },
-  imageCandidateSelected: { borderColor: COLORS.lime, backgroundColor: '#183323' },
-  candidateImage: { width: '100%', height: 58, backgroundColor: '#f4f6f1' },
-  candidateLabel: { paddingHorizontal: 5, paddingTop: 4, color: COLORS.muted, fontSize: 9 },
-  imageSelectedBadge: { position: 'absolute', top: 5, right: 5, alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.lime },
+  addButtonDisabled: { backgroundColor: COLORS.lineSoft },
+  catalogSearchStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 10, paddingHorizontal: 2 },
+  catalogSearchText: { color: COLORS.muted, fontSize: 11 },
   selectedImageRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 9, paddingHorizontal: 2 },
   selectedImageText: { flex: 1, color: COLORS.limeDeep, fontSize: 11, fontWeight: '700' },
+  categoryInfoCard: { marginTop: 11, padding: 10, borderRadius: 13, backgroundColor: '#12302d', borderWidth: 1, borderColor: COLORS.line },
+  categoryInfoCopy: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
+  categoryInfoText: { flex: 1, color: COLORS.muted, fontSize: 11, lineHeight: 16 },
+  manageCategoriesButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 9, paddingVertical: 5, paddingHorizontal: 7, borderRadius: 9, backgroundColor: COLORS.panelDeep },
+  manageCategoriesText: { color: COLORS.lime, fontSize: 11, fontWeight: '800' },
+  noCategoriesText: { paddingTop: 10, color: COLORS.mutedDeep, fontSize: 11, lineHeight: 16 },
   categoryRow: { gap: 7, paddingTop: 11, paddingBottom: 2 },
   categoryChip: {
     flexDirection: 'row',
@@ -1305,6 +1511,7 @@ const styles = StyleSheet.create({
   categorySectionCopy: { flex: 1, minWidth: 0 },
   categorySectionTitle: { color: COLORS.textSoft, fontSize: 14, fontWeight: '900' },
   categorySectionMeta: { marginTop: 3, color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  categoryManageButton: { alignItems: 'center', justifyContent: 'center', width: 31, height: 31, marginLeft: 3, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 9, backgroundColor: COLORS.panelDeep },
   categorySelectButton: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 34, paddingHorizontal: 8, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 10, backgroundColor: COLORS.panelDeep },
   categorySelectText: { color: COLORS.lime, fontSize: 10, fontWeight: '900' },
   itemRow: {
@@ -1329,9 +1536,10 @@ const styles = StyleSheet.create({
     borderRadius: 9,
   },
   checkboxDone: { borderColor: COLORS.lime, backgroundColor: COLORS.lime },
-  itemMain: { flex: 1 },
-  itemNameRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  itemImage: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#f4f6f1' },
+  itemMain: { flex: 1, minWidth: 0 },
+  itemImageButton: { position: 'relative', width: 38, height: 38, marginRight: 9, borderRadius: 10 },
+  itemImage: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#f4f6f1' },
+  itemImageZoomBadge: { position: 'absolute', right: -3, bottom: -3, alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.lime },
   itemEmoji: { fontSize: 15 },
   itemName: { color: COLORS.textSoft, fontSize: 15, fontWeight: '700' },
   itemNameDone: { color: COLORS.muted, textDecorationLine: 'line-through' },
@@ -1363,6 +1571,12 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
+  imagePreviewBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.86)' },
+  imagePreviewPanel: { width: '100%', maxWidth: 720, padding: 14, borderRadius: 22, backgroundColor: COLORS.panel },
+  imagePreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  imagePreviewTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  imagePreviewImage: { width: '100%', height: 430, marginTop: 10, borderRadius: 14, backgroundColor: '#f4f6f1' },
+  imagePreviewHint: { marginTop: 9, color: COLORS.muted, textAlign: 'center', fontSize: 11 },
   modalScroll: { width: '100%' },
   modalScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
   quantityModal: {
@@ -1375,6 +1589,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.panel,
   },
   editModal: { width: '100%', maxWidth: 480, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  categoryModal: { width: '100%', maxWidth: 440, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  categoryModalHint: { marginTop: 16, color: COLORS.muted, fontSize: 12, lineHeight: 18 },
+  categoryModalError: { marginTop: 11, color: COLORS.danger, fontSize: 12, lineHeight: 18 },
+  categoryModalActions: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 20 },
+  deleteCategoryOutlineButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, marginTop: 14, borderWidth: 1, borderColor: '#5a2b26', borderRadius: 13 },
+  deleteCategoryOutlineText: { color: COLORS.danger, fontSize: 13, fontWeight: '800' },
+  categoryDeleteConfirm: { alignItems: 'flex-start', marginTop: 20 },
+  categoryDeleteTitle: { marginTop: 13, color: COLORS.text, fontSize: 19, fontWeight: '800' },
+  categoryDeleteText: { marginTop: 7, color: COLORS.muted, fontSize: 13, lineHeight: 19 },
+  deleteCategoryButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 50, borderRadius: 14, backgroundColor: COLORS.danger },
+  deleteCategoryText: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
   editLabel: { color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 17, marginBottom: 8 },
   editInput: { height: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 14, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 16 },
   editControlsRow: { flexDirection: 'row' },

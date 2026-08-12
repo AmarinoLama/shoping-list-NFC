@@ -36,6 +36,14 @@ export type ProductCatalogEntry = {
   created_at: string;
 };
 
+export type HouseholdCategory = {
+  id: string;
+  household_id: string;
+  name: string;
+  emoji: string;
+  created_at: string;
+};
+
 export type ShoppingItem = {
   id: string;
   household_id: string;
