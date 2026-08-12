@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Lista de Casa",
+    "slug": "lista-de-casa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "lista-casa",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.smartview.listadecasa"
+    },
+    "android": {
+      "package": "com.smartview.listadecasa",
+      "adaptiveIcon": {
+        "backgroundColor": "#071312",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    }
+  }
+}
