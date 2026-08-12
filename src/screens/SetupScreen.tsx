@@ -26,7 +26,7 @@ export function SetupScreen() {
         <Text style={styles.code}>EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD=fornelosdemontes</Text>
       </View>
       <Text style={styles.hint}>
-        Después aplica la migración SQL incluida en supabase/migrations.
+        Después aplica el esquema SQL incluido en supabase/database.sql.
       </Text>
     </ScrollView>
   );

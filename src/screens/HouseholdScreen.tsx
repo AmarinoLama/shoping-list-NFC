@@ -553,16 +553,16 @@ function friendlyHouseholdError(caught: unknown, fallback: string): string {
   const message = caught instanceof Error ? caught.message : String(caught ?? '');
   const normalized = message.toLowerCase();
   if (normalized.includes('you must be signed in') || normalized.includes('jwt') || normalized.includes('auth')) {
-    return 'Supabase sigue usando el flujo antiguo con usuarios. Ejecuta la migración 202608120005_anonymous_house_flow.sql en el SQL Editor y vuelve a probar.';
+    return 'Supabase sigue usando el flujo antiguo con usuarios. Ejecuta el contenido completo de supabase/database.sql en el SQL Editor y vuelve a probar.';
   }
   if (normalized.includes('update_household') || normalized.includes('delete_household')) {
-    return 'Falta la configuración de casas en Supabase. Ejecuta la migración 202608120007_household_settings.sql.';
+    return 'Falta la configuración de casas en Supabase. Ejecuta el contenido completo de supabase/database.sql.';
   }
   if (normalized.includes('pgrst202') || normalized.includes('could not find the function')) {
-    return 'Falta la función anónima de casas en Supabase. Ejecuta las migraciones 202608120005_anonymous_house_flow.sql y 202608120007_household_settings.sql.';
+    return 'Falta la función anónima de casas en Supabase. Ejecuta el contenido completo de supabase/database.sql.';
   }
   if (normalized.includes('permission denied') || normalized.includes('row-level security') || normalized.includes('rls')) {
-    return 'Supabase ha bloqueado la operación. Ejecuta la migración 202608120005_anonymous_house_flow.sql para actualizar los permisos.';
+    return 'Supabase ha bloqueado la operación. Ejecuta el contenido completo de supabase/database.sql para actualizar las tablas, RPC y permisos.';
   }
   return message || fallback;
 }

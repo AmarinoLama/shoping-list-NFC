@@ -13,7 +13,7 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 - Imágenes opcionales por producto, compartidas entre todos los miembros del hogar.
 - Búsqueda automática de imágenes de catálogo, catálogo compartido de productos ya comprados y opción de hacer una foto desde el móvil.
 - Persistencia local de la autorización con AsyncStorage.
-- Selector de casas como pantalla inicial: abrir, crear o unirse siempre requiere autorización.
+- Selector de casas como pantalla inicial: la autorización se solicita al entrar en el menú y después permite gestionar las casas sin repetirla.
 - Autorización de casa con contraseña, control para mostrar/ocultar el password y recuerdo local del acceso.
 
 ## Flujo de acceso a una casa
@@ -26,16 +26,10 @@ Al entrar en el menú de casas se solicita la autorización configurada en `EXPO
 2. Copia `.env.example` como `.env.local`.
 3. Rellena `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` desde **Project Settings → API**. Se usa exclusivamente la anon key; no hay cuentas ni sesiones de usuario.
 4. Configura `EXPO_PUBLIC_NFC_BASE_URL`, `EXPO_PUBLIC_NFC_DOMAIN` y `EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD` cuando tengas un dominio HTTPS para las etiquetas.
-5. Ejecuta el contenido de `supabase/migrations/202608120001_initial_schema.sql` en el SQL Editor de Supabase.
-6. Ejecuta también `supabase/migrations/202608120002_ensure_rpc_functions.sql` (idempotente).
-7. Ejecuta `supabase/migrations/202608120003_product_images.sql` para activar imágenes compartidas y el bucket de Storage.
-8. Ejecuta `supabase/migrations/202608120004_household_product_catalog.sql` para recordar productos e imágenes por casa.
-9. Ejecuta `supabase/migrations/202608120005_anonymous_house_flow.sql` para activar el flujo sin cuentas.
-10. Ejecuta `supabase/migrations/202608120006_anonymous_product_image_uploads.sql` para permitir fotos desde clientes anónimos y limitar las imágenes a JPEG pequeños.
-11. Ejecuta `supabase/migrations/202608120007_household_settings.sql` para activar renombrar y borrar casas desde configuración.
-12. Comprueba que Realtime está habilitado para `public.shopping_items`.
+5. Ejecuta el contenido completo de `supabase/database.sql` en el SQL Editor de Supabase.
+6. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
-Las migraciones crean las tablas, índices, funciones seguras, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage para que la vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
+El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes y el catálogo compartido de productos. Cuando un producto ya comprado vuelve a escribirse, la app reutiliza su imagen guardada antes de consultar el servicio externo. La búsqueda usa Open Food Facts; no se raspa Google y, si el servicio falla, el producto se puede añadir igualmente. Las fotos propias se pueden hacer con la cámara o elegir desde la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage para que la vea todo el hogar. No uses nunca una service-role key dentro de la aplicación móvil.
 
 ### Error 404 al crear un hogar (PGRST202)
 
@@ -45,7 +39,7 @@ Si al pulsar **Crear hogar** aparece un `404` en `POST /rest/v1/rpc/create_house
 - `join_household_by_nfc_token(text)` — unirse por etiqueta NFC.
 - `get_households()` — listar las casas disponibles.
 
-Solución: abre el **SQL Editor** de tu proyecto Supabase y ejecuta las migraciones en orden, incluida `supabase/migrations/202608120005_anonymous_house_flow.sql`. Vuelve a probar y debería funcionar.
+Solución: abre el **SQL Editor** de tu proyecto Supabase y ejecuta el contenido completo de `supabase/database.sql`. Vuelve a probar y debería funcionar.
 
 En la app nativa, los enlaces NFC usan el esquema `lista-casa://` (configurado en `app.config.ts`); en web usan la URL actual de la aplicación.
 
@@ -106,4 +100,4 @@ La lectura/escritura física de etiquetas NFC se realiza con una aplicación de 
 - `src/lib/supabase.ts`: cliente Supabase móvil.
 - `src/lib/shopping.ts`: operaciones CRUD, RPC, realtime y NFC.
 - `src/screens/`: selector de casas, autorización, lista y configuración.
-- `supabase/migrations/`: esquema y seguridad del backend.
+- `supabase/database.sql`: esquema y seguridad completos del backend.

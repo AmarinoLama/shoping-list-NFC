@@ -883,7 +883,7 @@ function friendlyImageError(caught: unknown): string {
   const message = caught instanceof Error ? caught.message : String(caught ?? '');
   const normalized = message.toLowerCase();
   if (normalized.includes('row-level security') || normalized.includes('rls') || normalized.includes('new row violates')) {
-    return 'Supabase está bloqueando la imagen. Ejecuta la migración 202608120006_anonymous_product_image_uploads.sql y vuelve a intentarlo.';
+    return 'Supabase está bloqueando la imagen. Ejecuta el contenido completo de supabase/database.sql y vuelve a intentarlo.';
   }
   return message || 'No se pudo guardar la imagen del producto.';
 }
