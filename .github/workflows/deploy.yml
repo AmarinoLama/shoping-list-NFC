@@ -22,17 +22,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build web (expo export)
-        run: npm run build:web
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-          EXPO_PUBLIC_NFC_BASE_URL: ${{ secrets.EXPO_PUBLIC_NFC_BASE_URL }}
-          EXPO_PUBLIC_NFC_DOMAIN: ${{ secrets.EXPO_PUBLIC_NFC_DOMAIN }}
-          EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD: ${{ secrets.EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD }}
-
-      - name: Deploy to Cloudflare Workers
-        run: npx --yes wrangler@4.121.0 deploy
+      - name: Build and deploy to Cloudflare Workers
+        run: npm run deploy:cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

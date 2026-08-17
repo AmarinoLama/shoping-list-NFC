@@ -27,7 +27,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:web": "expo export -p web && node scripts/patch-web-favicon.mjs",
-    "build": "npm run build:web"
+    "build": "npm run build:web",
+    "deploy:cloudflare": "npm run build && npx --yes wrangler@4.121.0 deploy"
   },
   "private": true
 }

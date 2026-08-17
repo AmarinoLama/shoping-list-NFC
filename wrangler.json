@@ -3,7 +3,7 @@
   "compatibility_date": "2026-08-12",
   "preview_urls": false,
   "build": {
-    "command": "npm run build"
+    "command": "node scripts/ensure-web-build.mjs"
   },
   "assets": {
     "directory": "./dist",
