@@ -6,13 +6,13 @@ Aplicación móvil Expo/React Native para centralizar la lista de la compra de u
 
 - Casas compartidas con acceso mediante contraseña.
 - Crear una lista o unirse mediante token NFC.
-- Añadir productos, cantidad y categorías específicas: fruta, verdura, carne y pescado, lácteos, panadería, congelados, bebidas, despensa, snacks, limpieza, higiene, hogar, mascotas y bebé.
+- Añadir productos con cantidad y unidad configurable: unidades, gramos, kilos, mililitros, litros, paquetes, cajas, botellas, latas, sobres o una unidad personalizada.
 - Marcar, borrar y limpiar productos completados.
 - Actualización realtime entre todos los móviles del hogar.
 - Rutas NFC desde el selector de casas para abrir una casa directamente.
 - Imágenes opcionales por producto, visibles para todos los miembros mientras la compra está pendiente.
 - Catálogo global de productos ya usados: al escribir en cualquier casa aparecen sugerencias para autocompletar nombre y categoría.
-- Categorías globales compartidas entre todas las casas, con selección independiente de las categorías activas en cada vivienda.
+- Categorías globales compartidas entre todas las casas, con CRUD de nombre y emoji y selección independiente de las categorías activas en cada vivienda.
 - Fotos opcionales únicamente desde la cámara o la galería del móvil, con recorte y compresión.
 - Persistencia local de la autorización con AsyncStorage.
 - Selector de casas como pantalla inicial: la autorización se solicita al entrar en el menú y después permite gestionar las casas sin repetirla.
@@ -47,6 +47,25 @@ En la app nativa, los enlaces NFC usan el esquema `lista-casa://` (configurado e
 
 ## Desarrollo local
 
+Requisitos: Node.js y npm. La aplicación es una app Expo que puede ejecutarse en Android, iOS o navegador web.
+
+### Comandos disponibles
+
+```bash
+npm install
+npm start             # Arranca Expo
+npm run web           # Arranca directamente la versión web
+npm run build         # Genera la exportación web
+npx tsc --noEmit      # Comprueba los tipos
+```
+
+Para una comprobación completa antes de publicar:
+
+```bash
+npx tsc --noEmit && npm run build && git diff --check
+```
+
+
 ```bash
 npm install
 cp .env.example .env.local
@@ -60,6 +79,12 @@ Después elige:
 - `w` para web.
 
 La app muestra una pantalla de configuración si faltan las variables públicas de Supabase.
+
+## Gestión de categorías y cantidades
+
+Las categorías son un catálogo común para todas las casas. Desde **Gestionar categorías** se pueden crear, renombrar, cambiar de emoji o borrar; cada casa decide qué categorías quiere activar y también puede desactivar el modo de categorías para utilizar una lista convencional. Los productos de una categoría eliminada no desaparecen: pasan a **Sin categoría**.
+
+Al crear o editar un producto, el selector permite elegir la cantidad y su unidad. En la lista se muestran formatos como `x2`, `500 g`, `2 kg` o `1 l` junto al nombre.
 
 ## NFC
 
