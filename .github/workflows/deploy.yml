@@ -29,6 +29,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_NFC_BASE_URL: ${{ secrets.EXPO_PUBLIC_NFC_BASE_URL }}
           EXPO_PUBLIC_NFC_DOMAIN: ${{ secrets.EXPO_PUBLIC_NFC_DOMAIN }}
+          EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD: ${{ secrets.EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD }}
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -36,3 +37,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.121.0"
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_NFC_BASE_URL: ${{ secrets.EXPO_PUBLIC_NFC_BASE_URL }}
+          EXPO_PUBLIC_NFC_DOMAIN: ${{ secrets.EXPO_PUBLIC_NFC_DOMAIN }}
+          EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD: ${{ secrets.EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD }}
