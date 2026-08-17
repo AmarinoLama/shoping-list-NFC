@@ -23,10 +23,9 @@ export function SetupScreen() {
         <Text style={styles.code}>EXPO_PUBLIC_SUPABASE_ANON_KEY=...</Text>
         <Text style={styles.code}>EXPO_PUBLIC_NFC_BASE_URL=https://tu-dominio.com/join</Text>
         <Text style={styles.code}>EXPO_PUBLIC_NFC_DOMAIN=tu-dominio.com</Text>
-        <Text style={styles.code}>EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD=fornelosdemontes</Text>
       </View>
       <Text style={styles.hint}>
-        Después aplica el esquema SQL incluido en supabase/database.sql.
+        La contraseña de autorización se configura como secreto de despliegue y nunca se muestra en esta pantalla. Después aplica el esquema SQL incluido en supabase/database.sql.
       </Text>
     </ScrollView>
   );
