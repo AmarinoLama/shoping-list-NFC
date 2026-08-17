@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentProps } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -11,7 +12,7 @@ import {
   Pressable,
   StyleSheet,
   Switch,
-  Text,
+  Text as NativeText,
   TextInput,
   useWindowDimensions,
   View,
@@ -19,6 +20,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   addShoppingItem,
   clearCompletedItems,
@@ -27,6 +29,8 @@ import {
   deleteShoppingItem,
   getHouseholdCategories,
   getShoppingItems,
+  MAX_QUANTITY,
+  normalizeQuantity,
   rememberProductCatalog,
   searchProductCatalog,
   setHouseholdCategoryEnabled,
@@ -45,6 +49,29 @@ type Props = {
   onChangeHouse: () => void;
 };
 
+type AccessibleTextProps = ComponentProps<typeof NativeText>;
+
+const FontScaleContext = createContext(1);
+const FONT_SCALE_STORAGE_KEY = '@lista-casa/font-scale';
+const FONT_SCALE_OPTIONS = [
+  { value: 1, label: 'Normal', sample: 'Aa' },
+  { value: 1.15, label: 'Grande', sample: 'Aa' },
+  { value: 1.3, label: 'Muy grande', sample: 'Aa' },
+];
+
+function Text({ style, ...props }: AccessibleTextProps) {
+  const scale = useContext(FontScaleContext);
+  const flattened = StyleSheet.flatten(style) as { fontSize?: number; lineHeight?: number } | undefined;
+  const scaledStyle = scale === 1 || !flattened
+    ? style
+    : [
+        style,
+        flattened.fontSize ? { fontSize: flattened.fontSize * scale } : null,
+        flattened.lineHeight ? { lineHeight: flattened.lineHeight * scale } : null,
+      ];
+  return <NativeText {...props} style={scaledStyle} />;
+}
+
 type CategoryGroup = {
   category: string;
   items: ShoppingItem[];
@@ -53,7 +80,7 @@ type CategoryGroup = {
 
 const CONFETTI_COLORS = [COLORS.lime, COLORS.cyan, COLORS.amber, COLORS.pink, COLORS.violet];
 const CONFETTI_EMOJI = ['⭐', '🛒', '🎉', '🧃'];
-const QUANTITY_OPTIONS = Array.from({ length: 100 }, (_, index) => String(index + 1));
+const QUANTITY_OPTIONS = Array.from({ length: MAX_QUANTITY }, (_, index) => String(index + 1));
 const QUANTITY_UNIT_OPTIONS = [
   { value: 'unidades', label: 'Unidades' },
   { value: 'g', label: 'Gramos' },
@@ -70,7 +97,7 @@ const CATEGORY_EMOJI_OPTIONS = ['🏷️', '🍎', '🥕', '🥩', '🧀', '🥖
 const QUANTITY_ITEM_HEIGHT = 48;
 
 function formatQuantity(quantity: string, unit?: string): string {
-  const value = quantity.trim() || '1';
+  const value = normalizeQuantity(quantity);
   const normalizedUnit = unit?.trim() || 'unidades';
   return normalizedUnit === 'unidades' ? `x${value}` : `${value} ${normalizedUnit}`;
 }
@@ -111,6 +138,8 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   const [confirmingCategoryDelete, setConfirmingCategoryDelete] = useState(false);
   const [categoryBusy, setCategoryBusy] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [fontScale, setFontScale] = useState(1);
   const catalogSearchRequest = useRef(0);
   const quantityListRef = useRef<FlatList<string> | null>(null);
 
@@ -120,6 +149,32 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   useEffect(() => {
     Animated.timing(headerIn, { toValue: 1, duration: 380, useNativeDriver: true }).start();
   }, [headerIn]);
+
+  useEffect(() => {
+    let active = true;
+    void AsyncStorage.getItem(FONT_SCALE_STORAGE_KEY)
+      .then((storedScale) => {
+        const parsedScale = Number(storedScale);
+        if (active && FONT_SCALE_OPTIONS.some((option) => option.value === parsedScale)) {
+          setFontScale(parsedScale);
+        }
+      })
+      .catch(() => {
+        // La preferencia visual es opcional; usamos el tamaño normal si no se puede leer.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function updateFontScale(nextScale: number): Promise<void> {
+    setFontScale(nextScale);
+    try {
+      await AsyncStorage.setItem(FONT_SCALE_STORAGE_KEY, String(nextScale));
+    } catch {
+      // El ajuste sigue activo durante esta sesión aunque no se pueda guardar.
+    }
+  }
 
   async function refresh(): Promise<void> {
     try {
@@ -200,9 +255,32 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     }).start();
   }, [progress, progressMotion]);
 
+  function setPickerQuantity(value: string, scroll = true): void {
+    const nextQuantity = normalizeQuantity(value);
+    if (quantityPickerTarget === 'edit') setEditQuantity(nextQuantity);
+    else setQuantity(nextQuantity);
+    if (scroll) {
+      const index = Number(nextQuantity) - 1;
+      quantityListRef.current?.scrollToOffset({ offset: index * QUANTITY_ITEM_HEIGHT, animated: true });
+    }
+  }
+
+  function handlePickerQuantityInput(value: string): void {
+    const digits = value.replace(/[^0-9]/g, '').slice(0, String(MAX_QUANTITY).length);
+    if (!digits) {
+      if (quantityPickerTarget === 'edit') setEditQuantity('');
+      else setQuantity('');
+      return;
+    }
+    setPickerQuantity(digits);
+  }
+
   useEffect(() => {
     if (quantityPickerTarget === null) return;
-    const index = Math.max(0, Math.min(QUANTITY_OPTIONS.length - 1, Number(pickerQuantity) - 1));
+    const nextQuantity = normalizeQuantity(pickerQuantity);
+    if (quantityPickerTarget === 'edit') setEditQuantity(nextQuantity);
+    else setQuantity(nextQuantity);
+    const index = Number(nextQuantity) - 1;
     const timeout = setTimeout(() => {
       quantityListRef.current?.scrollToOffset({ offset: index * QUANTITY_ITEM_HEIGHT, animated: false });
     }, 40);
@@ -236,7 +314,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   function startEditing(item: ShoppingItem): void {
     setEditingItem(item);
     setEditName(item.name);
-    setEditQuantity(item.quantity || '1');
+    setEditQuantity(normalizeQuantity(item.quantity || '1'));
     setEditQuantityUnit(item.quantity_unit || 'unidades');
     setEditCategory(item.category);
     setError(null);
@@ -246,6 +324,12 @@ export function ListScreen({ household, onChangeHouse }: Props) {
     setEditingItem(null);
     setEditName('');
     setError(null);
+  }
+
+  function openQuantityPicker(target: 'new' | 'edit'): void {
+    if (target === 'edit') setEditQuantity(normalizeQuantity(editQuantity));
+    else setQuantity(normalizeQuantity(quantity));
+    setQuantityPickerTarget(target);
   }
 
   async function saveEdit(): Promise<void> {
@@ -679,6 +763,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
   };
 
   return (
+    <FontScaleContext.Provider value={fontScale}>
     <KeyboardAvoidingView
       style={[styles.screen, compact && styles.screenCompact]}
       behavior={Platform.OS === 'android' ? 'height' : 'padding'}
@@ -707,6 +792,14 @@ export function ListScreen({ household, onChangeHouse }: Props) {
         </View>
         <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
           <Pressable
+            style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
+            onPress={() => setSettingsVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir ajustes de accesibilidad"
+          >
+            <MaterialCommunityIcons name="cog-outline" size={19} color={COLORS.violet} />
+          </Pressable>
+          <Pressable
             style={({ pressed }) => [styles.backHouseButton, pressed && styles.pressed]}
             onPress={onChangeHouse}
             accessibilityLabel="Volver al menú de casas"
@@ -714,7 +807,6 @@ export function ListScreen({ household, onChangeHouse }: Props) {
             <MaterialCommunityIcons name="arrow-left" size={18} color={COLORS.cyan} />
             <Text style={styles.backHouseText}>Casas</Text>
           </Pressable>
-
         </View>
       </Animated.View>
 
@@ -750,7 +842,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
           />
           <Pressable
             style={({ pressed }) => [styles.quantityPickerButton, pressed && styles.pressed]}
-            onPress={() => setQuantityPickerTarget('new')}
+            onPress={() => openQuantityPicker('new')}
             accessibilityRole="button"
             accessibilityLabel={`Cantidad: ${quantity}. Abrir selector`}
           >
@@ -1142,7 +1234,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                 <Text style={styles.editLabel}>CANTIDAD</Text>
                 <Pressable
                   style={styles.editQuantityButton}
-                  onPress={() => setQuantityPickerTarget('edit')}
+                  onPress={() => openQuantityPicker('edit')}
                 >
                   <Text style={styles.editQuantityText}>{formatQuantity(editQuantity, editQuantityUnit)}</Text>
                   <MaterialCommunityIcons name="unfold-more-horizontal" size={17} color={COLORS.muted} />
@@ -1234,26 +1326,19 @@ export function ListScreen({ household, onChangeHouse }: Props) {
                     QUANTITY_OPTIONS.length - 1,
                     Math.max(0, Math.round(nativeEvent.contentOffset.y / QUANTITY_ITEM_HEIGHT)),
                   );
-                  if (quantityPickerTarget === 'edit') setEditQuantity(QUANTITY_OPTIONS[index]);
-                  else setQuantity(QUANTITY_OPTIONS[index]);
+                  setPickerQuantity(QUANTITY_OPTIONS[index], false);
                 }}
                 onMomentumScrollEnd={({ nativeEvent }) => {
                   const index = Math.min(
                     QUANTITY_OPTIONS.length - 1,
                     Math.max(0, Math.round(nativeEvent.contentOffset.y / QUANTITY_ITEM_HEIGHT)),
                   );
-                  if (quantityPickerTarget === 'edit') setEditQuantity(QUANTITY_OPTIONS[index]);
-                  else setQuantity(QUANTITY_OPTIONS[index]);
+                  setPickerQuantity(QUANTITY_OPTIONS[index], false);
                 }}
                 renderItem={({ item: option }) => (
                   <Pressable
                     style={styles.wheelItem}
-                    onPress={() => {
-                      const index = Number(option) - 1;
-                      quantityListRef.current?.scrollToOffset({ offset: index * QUANTITY_ITEM_HEIGHT, animated: true });
-                      if (quantityPickerTarget === 'edit') setEditQuantity(option);
-                      else setQuantity(option);
-                    }}
+                    onPress={() => setPickerQuantity(option)}
                     accessibilityRole="button"
                     accessibilityLabel={`Seleccionar cantidad ${option}`}
                   >
@@ -1265,6 +1350,18 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               />
               <View pointerEvents="none" style={styles.wheelSelection} />
             </View>
+            <Text style={styles.quantityUnitLabel}>CANTIDAD · MÁXIMO {MAX_QUANTITY}</Text>
+            <TextInput
+              style={styles.quantityNumberInput}
+              value={pickerQuantity}
+              onChangeText={handlePickerQuantityInput}
+              keyboardType="number-pad"
+              maxLength={String(MAX_QUANTITY).length}
+              placeholder="Escribe o desliza"
+              placeholderTextColor={COLORS.mutedDeep}
+              accessibilityLabel={`Cantidad, máximo ${MAX_QUANTITY}`}
+            />
+            <Text style={styles.quantityPickerHint}>También puedes deslizar para elegir un número.</Text>
             <Text style={styles.quantityUnitLabel}>UNIDAD</Text>
             <View style={styles.quantityUnitsGrid}>
               {QUANTITY_UNIT_OPTIONS.map((option) => (
@@ -1304,6 +1401,56 @@ export function ListScreen({ household, onChangeHouse }: Props) {
               <Text style={styles.confirmQuantityText}>
                 Usar {formatQuantity(pickerQuantity, pickerUnit)}
               </Text>
+              <MaterialCommunityIcons name="check" size={19} color={COLORS.bg} />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={settingsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSettingsVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.settingsModal}>
+            <View style={styles.quantityModalHeader}>
+              <View>
+                <Text style={styles.quantityModalEyebrow}>ACCESIBILIDAD</Text>
+                <Text style={styles.quantityModalTitle}>Ajustes de lectura</Text>
+              </View>
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setSettingsVisible(false)}
+                accessibilityLabel="Cerrar ajustes"
+              >
+                <MaterialCommunityIcons name="close" size={19} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            <Text style={styles.settingsHint}>
+              Aumenta el tamaño de la letra para leer la lista con más comodidad. Se guardará en este dispositivo.
+            </Text>
+            <Text style={styles.quantityUnitLabel}>TAMAÑO DE LETRA</Text>
+            <View style={styles.fontScaleOptions}>
+              {FONT_SCALE_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.value}
+                  style={[styles.fontScaleOption, fontScale === option.value && styles.fontScaleOptionActive]}
+                  onPress={() => void updateFontScale(option.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Tamaño de letra ${option.label}`}
+                >
+                  <Text style={[styles.fontScaleSample, { fontSize: 18 * option.value }]}>{option.sample}</Text>
+                  <Text style={[styles.fontScaleLabel, fontScale === option.value && styles.fontScaleLabelActive]}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable
+              style={({ pressed }) => [styles.confirmQuantityButton, pressed && styles.pressed]}
+              onPress={() => setSettingsVisible(false)}
+            >
+              <Text style={styles.confirmQuantityText}>Guardar ajustes</Text>
               <MaterialCommunityIcons name="check" size={19} color={COLORS.bg} />
             </Pressable>
           </View>
@@ -1433,6 +1580,7 @@ export function ListScreen({ household, onChangeHouse }: Props) {
       </View>
       </View>
     </KeyboardAvoidingView>
+    </FontScaleContext.Provider>
   );
 }
 
@@ -1652,6 +1800,7 @@ const styles = StyleSheet.create({
   countDone: { color: COLORS.mutedDeep, fontSize: 13 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   headerActionsCompact: { alignSelf: 'flex-end', marginTop: 9 },
+  settingsButton: { alignItems: 'center', justifyContent: 'center', width: 42, height: 42, borderRadius: 14, backgroundColor: COLORS.panel, borderWidth: 1, borderColor: COLORS.line },
   backHouseButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 42, paddingHorizontal: 10, borderRadius: 14, backgroundColor: COLORS.panel, borderWidth: 1, borderColor: COLORS.line },
   backHouseText: { color: COLORS.cyan, fontSize: 12, fontWeight: '800' },
   avatar: {
@@ -1857,6 +2006,14 @@ const styles = StyleSheet.create({
   imagePreviewHint: { marginTop: 9, color: COLORS.muted, textAlign: 'center', fontSize: 11 },
   modalScroll: { width: '100%' },
   modalScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
+  settingsModal: { width: '100%', maxWidth: 390, padding: 18, borderWidth: 1, borderColor: COLORS.lineSoft, borderRadius: 24, backgroundColor: COLORS.panel },
+  settingsHint: { marginTop: 14, color: COLORS.muted, fontSize: 13, lineHeight: 20 },
+  fontScaleOptions: { flexDirection: 'row', gap: 8, paddingTop: 8 },
+  fontScaleOption: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 83, paddingHorizontal: 5, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.panelDeep },
+  fontScaleOptionActive: { borderColor: COLORS.lime, backgroundColor: '#183323' },
+  fontScaleSample: { color: COLORS.text, fontWeight: '900' },
+  fontScaleLabel: { marginTop: 6, color: COLORS.muted, fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  fontScaleLabelActive: { color: COLORS.lime },
   quantityModal: {
     width: '100%',
     maxWidth: 390,
@@ -1921,6 +2078,8 @@ const styles = StyleSheet.create({
   wheelTextActive: { color: COLORS.lime, fontSize: 29, fontWeight: '900' },
   wheelSelection: { position: 'absolute', top: 96, left: 12, right: 12, height: QUANTITY_ITEM_HEIGHT, borderWidth: 1, borderColor: COLORS.lime, borderRadius: 12, backgroundColor: 'rgba(167,243,106,0.08)' },
   quantityUnitLabel: { marginTop: 16, color: COLORS.mutedDeep, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
+  quantityNumberInput: { height: 48, marginTop: 9, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.lime, borderRadius: 13, backgroundColor: COLORS.panelDeep, color: COLORS.text, fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  quantityPickerHint: { marginTop: 6, color: COLORS.mutedDeep, fontSize: 11, textAlign: 'center' },
   quantityUnitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 9 },
   quantityUnitChip: { paddingHorizontal: 11, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, backgroundColor: COLORS.panelDeep },
   quantityUnitChipActive: { borderColor: COLORS.lime, backgroundColor: '#183323' },

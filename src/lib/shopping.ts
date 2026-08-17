@@ -3,6 +3,14 @@ import { getAppBaseUrl } from './app-url';
 import { HOUSEHOLD_AUTHORIZATION_PASSWORD } from './authorization';
 import type { Household, HouseholdCategory, ProductCatalogEntry, ShoppingItem } from '../types';
 
+export const MAX_QUANTITY = 2000;
+
+export function normalizeQuantity(value: string): string {
+  const digits = value.replace(/[^0-9]/g, '');
+  if (!digits) return '1';
+  return String(Math.min(MAX_QUANTITY, Math.max(1, Number.parseInt(digits, 10))));
+}
+
 export async function getMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase.rpc('get_households');
   if (error) throw error;
@@ -182,7 +190,7 @@ export async function addShoppingItem(input: {
     .insert({
       household_id: input.householdId,
       name: input.name.trim(),
-      quantity: input.quantity.trim() || '1',
+      quantity: normalizeQuantity(input.quantity),
       quantity_unit: input.quantityUnit.trim() || 'unidades',
       category: input.category,
       image_url: input.imageUrl ?? null,
@@ -205,7 +213,7 @@ export async function updateShoppingItem(input: {
     .from('shopping_items')
     .update({
       name: input.name.trim(),
-      quantity: input.quantity.trim() || '1',
+      quantity: normalizeQuantity(input.quantity),
       quantity_unit: input.quantityUnit.trim() || 'unidades',
       category: input.category,
       image_url: input.imageUrl,
