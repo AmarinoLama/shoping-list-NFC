@@ -121,7 +121,7 @@ npx eas build --platform ios
 
 La lectura/escritura física de etiquetas NFC se realiza con una aplicación de escritura NFC del sistema o de terceros. El flujo de esta app usa el estándar más compatible: una URL HTTPS almacenada en la etiqueta.
 
-## Estructura
+## Estructura 
 
 - `App.tsx`: selector de casas, enlaces entrantes y routing principal.
 - `src/lib/supabase.ts`: cliente Supabase móvil.
