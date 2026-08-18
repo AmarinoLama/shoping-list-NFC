@@ -31,6 +31,18 @@ Al entrar en el menú de casas se solicita la autorización configurada en `EXPO
 5. Ejecuta el contenido completo de `supabase/database.sql` en el SQL Editor de Supabase.
 6. Comprueba que Realtime está habilitado para `public.shopping_items`.
 
+### Despliegue automático en Cloudflare
+
+El workflow de GitHub Actions compila la web con las variables disponibles en el propio job y después publica `dist` en Cloudflare. Define cada valor como un secreto o variable independiente, usando exactamente estos nombres:
+
+- `EXPO_PUBLIC_SUPABASE_URL` (obligatoria).
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` (obligatoria).
+- `EXPO_PUBLIC_NFC_BASE_URL` (opcional; si falta, se usa el dominio actual).
+- `EXPO_PUBLIC_NFC_DOMAIN` (opcional; se usa para deep links nativos).
+- `EXPO_PUBLIC_HOUSEHOLD_AUTHORIZATION_PASSWORD` (opcional; el valor predeterminado actual es `fornelosdemontes`).
+
+Los valores `EXPO_PUBLIC_*` quedan incorporados al JavaScript público por diseño; no uses aquí una service-role key ni otras credenciales privadas. El workflow falla antes de desplegar si faltan las dos variables obligatorias, en lugar de publicar por error la pantalla “CONFIGURACIÓN PENDIENTE”. Añadir o cambiar un secreto no dispara un workflow por sí solo: vuelve a ejecutar el workflow con **Run workflow** o haz un nuevo push.
+
 El archivo `supabase/database.sql` crea las tablas, índices, funciones RPC, políticas RLS, la publicación realtime, el bucket de imágenes, el catálogo global de productos y las categorías globales compartidas. Las categorías se crean manualmente y cualquier casa puede activar o desactivar las que quiere usar; también se puede desactivar completamente el modo de categorías para mostrar una lista convencional. Al renombrar una categoría se actualizan los productos existentes y, al borrarla, esos productos pasan a “Sin categoría”. El catálogo conserva nombre, categoría y número de compras para sugerir productos entre casas; las fotos son opcionales, se muestran mientras la compra está pendiente y se eliminan al marcarla como completada. Las imágenes solo se incorporan desde la cámara o la galería; el selector nativo permite mover y recortar la imagen con líneas rectas antes de guardarla. La app la convierte a JPEG, reduce su tamaño y la sube a Supabase Storage. No uses nunca una service-role key dentro de la aplicación móvil.
 
 ### Error 404 al crear un hogar (PGRST202)
